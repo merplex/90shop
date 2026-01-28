@@ -57,7 +57,7 @@ async function handleEvent(event) {
   if (userText === 'เมนู Create') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '🏠 คุณต้องการสร้างอะไรคะ?\n\nพิมพ์ "Branch: [ชื่อสาขา]" เพื่อสร้างสาขาใหม่\nพิมพ์ "U[LineID] [ชื่อ]" เพื่อเพิ่ม Admin ใหม่'
+      text: '🏠 คุณต้องการสร้างอะไรคะ?\n\nพิมพ์ "Branch [ชื่อสาขา]" เพื่อสร้างสาขาใหม่\nพิมพ์ "U[LineID] [ชื่อ]" เพื่อเพิ่ม Admin ใหม่'
     });
   }
 
@@ -79,8 +79,8 @@ async function handleEvent(event) {
   }
   
   // 2.4 เพิ่ม Logic การสร้างสาขา (Branch: ชื่อสาขา)
-  if (userText.startsWith('Branch:')) {
-    const branchName = userText.split(':')[1].trim();
+  if (userText.startsWith('Branch ')) {
+    const branchName = userText.split(' ')[1].trim();
     return handleCreateBranch(event, branchName);
   }
 
@@ -108,6 +108,17 @@ async function handleAddAdmin(event, targetId, displayName) {
       text: `❌ มี ID นี้ในระบบแล้วในชื่อ "${existing.display_name}"`
     });
   }
+
+  async function handleCreateBranch(event, branchName) {
+  const { error } = await supabase
+    .from('branches')
+    .insert([{ branch_name: branchName }]);
+
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: error ? `❌ สร้างสาขาไม่สำเร็จ: ${error.message}` : `✅ สร้างสาขา "${branchName}" เรียบร้อยแล้วค่ะ!`
+  });
+}
 
   // บันทึกลงตาราง
   const { error } = await supabase
