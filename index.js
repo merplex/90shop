@@ -27,16 +27,16 @@ async function handleEvent(event) {
   const userId = event.source.userId;
   const userText = event.message.text.trim();
 
-  // 1. เช็คสิทธิ์ Super Admin ก่อนเลย
+  // 1. เช็คสิทธิ์ Super Admin
   const { data: superAdmin } = await supabase
     .from('super_admins')
     .select('*')
     .eq('line_user_id', userId)
     .single();
 
-  if (!superAdmin) return null; // ถ้าไม่ใช่ Super Admin ไม่ต้องตอบโต้
+  if (!superAdmin) return null;
 
-    // 2. Logic เมื่อพิมพ์คำว่า "admin" (เมนูหลัก)
+  // 2. เมนูหลัก "admin"
   if (userText.toLowerCase() === 'admin') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -51,41 +51,27 @@ async function handleEvent(event) {
     });
   }
 
-  // --- เพิ่มโค้ดส่วนนี้เข้าไปค่ะ ---
-
-  // 2.1 รองรับปุ่ม Create
+  // 2.1 ปุ่มเมนูต่างๆ
   if (userText === 'เมนู Create') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: '🏠 คุณต้องการสร้างอะไรคะ?\n\nพิมพ์ "Branch [ชื่อสาขา]" เพื่อสร้างสาขาใหม่\nพิมพ์ "U[LineID] [ชื่อ]" เพื่อเพิ่ม Admin ใหม่'
+      text: '🏠 วิธีสร้างสาขา:\nพิมพ์ "Branch [ชื่อสาขา]"\nเช่น: Branch rabbit81'
     });
   }
 
-  // 2.2 รองรับปุ่ม Manage
   if (userText === 'เมนู Manage') {
-    // ตรงนี้เดี๋ยวเราจะดึงรายชื่อสาขาจาก Database มาโชว์
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '⚙️ ระบบกำลังดึงรายชื่อสาขา... (ส่วนนี้รอเขียนเชื่อม Database ค่ะ)'
-    });
+    return client.replyMessage(event.replyToken, { type: 'text', text: '⚙️ ระบบจัดการสาขา (Coming Soon)' });
   }
 
-  // 2.3 รองรับปุ่ม Super Admin
-  if (userText === 'เมนู Super Admin') {
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: '👑 ส่วนการจัดการสิทธิ์สูงสุด (เร็วๆ นี้)'
-    });
-  }
-  
-  // 2.4 เพิ่ม Logic การสร้างสาขา (Branch: ชื่อสาขา)
+  // 3. Logic สร้างสาขา (Branch [ชื่อ])
   if (userText.startsWith('Branch ')) {
-    const branchName = userText.split(' ')[1].trim();
-    return handleCreateBranch(event, branchName);
+    const branchName = userText.replace('Branch ', '').trim();
+    if (branchName) {
+      return handleCreateBranch(event, branchName);
+    }
   }
 
-
-  // 3. Logic การเพิ่ม Admin (Add Admin: Uxxxxx ชื่อเรียก)
+  // 4. Logic เพิ่ม Admin (U[ID] [ชื่อ])
   if (userText.startsWith('U') && userText.includes(' ')) {
     const [targetId, displayName] = userText.split(' ');
     if (targetId.length >= 8) {
@@ -94,41 +80,49 @@ async function handleEvent(event) {
   }
 }
 
-async function handleAddAdmin(event, targetId, displayName) {
-  // เช็คว่ามี Admin นี้หรือยัง
-  const { data: existing } = await supabase
-    .from('system_admins')
-    .select('display_name')
-    .eq('line_user_id', targetId)
-    .single();
+// --- ฟังก์ชันแยกกันอยู่ข้างนอก ไม่ซ้อนกันแล้วค่ะ ---
 
-  if (existing) {
+async function handleCreateBranch(event, branchName) {
+  try {
+    const { error } = await supabase
+      .from('branches')
+      .insert([{ branch_name: branchName }]);
+
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: `❌ มี ID นี้ในระบบแล้วในชื่อ "${existing.display_name}"`
+      text: error ? `❌ สร้างไม่สำเร็จ: ${error.message}` : `✅ สร้างสาขา "${branchName}" เรียบร้อยแล้วค่ะ!`
     });
+  } catch (err) {
+    console.error(err);
   }
-
-  async function handleCreateBranch(event, branchName) {
-  const { error } = await supabase
-    .from('branches')
-    .insert([{ branch_name: branchName }]);
-
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: error ? `❌ สร้างสาขาไม่สำเร็จ: ${error.message}` : `✅ สร้างสาขา "${branchName}" เรียบร้อยแล้วค่ะ!`
-  });
 }
 
-  // บันทึกลงตาราง
-  const { error } = await supabase
-    .from('system_admins')
-    .insert([{ line_user_id: targetId, display_name: displayName }]);
+async function handleAddAdmin(event, targetId, displayName) {
+  try {
+    const { data: existing } = await supabase
+      .from('system_admins')
+      .select('display_name')
+      .eq('line_user_id', targetId)
+      .single();
 
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: error ? 'เกิดข้อผิดพลาดในการบันทึก' : `✅ เพิ่ม Admin: ${displayName} เรียบร้อยแล้วค่ะ`
-  });
+    if (existing) {
+      return client.replyMessage(event.replyToken, {
+        type: 'text',
+        text: `❌ มี ID นี้ในระบบแล้วในชื่อ "${existing.display_name}"`
+      });
+    }
+
+    const { error } = await supabase
+      .from('system_admins')
+      .insert([{ line_user_id: targetId, display_name: displayName }]);
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: error ? '❌ เกิดข้อผิดพลาดในการบันทึก' : `✅ เพิ่ม Admin: ${displayName} เรียบร้อยแล้วค่ะ`
+    });
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 const PORT = process.env.PORT || 8080;
