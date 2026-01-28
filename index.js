@@ -36,7 +36,7 @@ async function handleEvent(event) {
 
   if (!superAdmin) return null; // ถ้าไม่ใช่ Super Admin ไม่ต้องตอบโต้
 
-  // 2. Logic เมื่อพิมพ์คำว่า "admin"
+    // 2. Logic เมื่อพิมพ์คำว่า "admin" (เมนูหลัก)
   if (userText.toLowerCase() === 'admin') {
     return client.replyMessage(event.replyToken, {
       type: 'text',
@@ -50,6 +50,40 @@ async function handleEvent(event) {
       }
     });
   }
+
+  // --- เพิ่มโค้ดส่วนนี้เข้าไปค่ะ ---
+
+  // 2.1 รองรับปุ่ม Create
+  if (userText === 'เมนู Create') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '🏠 คุณต้องการสร้างอะไรคะ?\n\nพิมพ์ "Branch: [ชื่อสาขา]" เพื่อสร้างสาขาใหม่\nพิมพ์ "U[LineID] [ชื่อ]" เพื่อเพิ่ม Admin ใหม่'
+    });
+  }
+
+  // 2.2 รองรับปุ่ม Manage
+  if (userText === 'เมนู Manage') {
+    // ตรงนี้เดี๋ยวเราจะดึงรายชื่อสาขาจาก Database มาโชว์
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⚙️ ระบบกำลังดึงรายชื่อสาขา... (ส่วนนี้รอเขียนเชื่อม Database ค่ะ)'
+    });
+  }
+
+  // 2.3 รองรับปุ่ม Super Admin
+  if (userText === 'เมนู Super Admin') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '👑 ส่วนการจัดการสิทธิ์สูงสุด (เร็วๆ นี้)'
+    });
+  }
+  
+  // 2.4 เพิ่ม Logic การสร้างสาขา (Branch: ชื่อสาขา)
+  if (userText.startsWith('Branch:')) {
+    const branchName = userText.split(':')[1].trim();
+    return handleCreateBranch(event, branchName);
+  }
+
 
   // 3. Logic การเพิ่ม Admin (Add Admin: Uxxxxx ชื่อเรียก)
   if (userText.startsWith('U') && userText.includes(' ')) {
