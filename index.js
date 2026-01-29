@@ -1,3 +1,24 @@
+// index.js (ส่วนบนสุด)
+const { getAdminMenu, getReportSelectionMenu, ALPHABET_GROUPS, chunkArray } = require('./menus');
+
+// ตอนจะส่งเมนู Admin ก็เหลือแค่สั้นๆ แบบนี้:
+if (userText.toLowerCase() === 'admin') {
+  return client.replyMessage(event.replyToken, {
+    type: "flex",
+    altText: "Admin Menu",
+    contents: getAdminMenu()
+  });
+}
+
+// ตอนกดปุ่มรายงานจาก Rich Menu:
+if (userText === 'เมนูรายงาน') { // หรือคำสั่งที่เปรมตั้งใน Rich Menu
+  return client.replyMessage(event.replyToken, {
+    type: "flex",
+    altText: "Select Report",
+    contents: getReportSelectionMenu()
+  });
+}
+
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
