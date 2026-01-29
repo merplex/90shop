@@ -45,21 +45,28 @@ async function handleEvent(event) {
   if (userText === 'เมนู Create') return sendFlexCreateMenu(event);
 
   // --- ระบบ Create (บันทึกเวลาไทยลง metadata ถ้าจำเป็น) ---
-  if (userText.startsWith('U') && userText.includes(' ')) {
+    if (userText.startsWith('U') && userText.includes(' ')) {
     const parts = userText.split(' ');
-    const targetId = parts[0].substring(1);
+    const targetId = parts[0].substring(1); // ตัดตัว U ออก
     const name = parts.slice(1).join(' ');
+    
     if (targetId.length >= 10) {
+      // ใช้เฉพาะ Column ที่เรามีชัวร์ๆ ใน Database
       const { error } = await supabase.from('branch_owners').upsert([
         { 
           owner_line_id: targetId, 
-          owner_name: name,
-          updated_at: now.format() // บันทึกเวลาไทย
+          owner_name: name
+          // เอา updated_at ออกไปก่อนจนกว่าจะสร้าง column เสร็จ
         }
-      ]);
-      return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ บันทึก Owner: ${name} แล้ว` });
+      ], { onConflict: 'owner_line_id' }); // บังคับว่าถ้า ID ซ้ำให้เขียนทับชื่อเดิม
+
+      return client.replyMessage(event.replyToken, { 
+        type: 'text', 
+        text: error ? `❌ Error: ${error.message}` : `✅ บันทึก Owner: ${name} (ID: ${targetId}) เรียบร้อยค่ะ` 
+      });
     }
   }
+
 
   if (userText.startsWith('Branch ')) {
     const branchName = userText.replace('Branch ', '').trim();
