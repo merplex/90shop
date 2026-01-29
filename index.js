@@ -58,9 +58,18 @@ async function handleEvent(event) {
     return sendAlphabetMenu(event, `MATCH_STEP2|${ownerInfo}`);
   }
   if (userText.startsWith('MATCH_STEP2|')) {
-    const [_, ownerInfo, range] = userText.split('|');
+    // แยกส่วนโดยใช้ทั้ง | และ : เป็นตัวคั่น
+    // โครงสร้างที่ส่งมา: MATCH_STEP2|ชื่อOwner|ID_Owner:กลุ่มตัวอักษร
+    const mainParts = userText.split('|'); // [ "MATCH_STEP2", "ชื่อOwner", "ID_Owner:กลุ่มตัวอักษร" ]
+    const ownerName = mainParts[1];
+    const subParts = mainParts[2].split(':'); // [ "ID_Owner", "กลุ่มตัวอักษร" ]
+    
+    const ownerId = subParts[0];
+    const range = subParts[1];
+    const ownerInfo = `${ownerName}|${ownerId}`;
+
     return showGrid(event, 'match_branch', range, ownerInfo);
-  }
+}
   if (userText.startsWith('CONFIRM_MAP|')) {
     const [_, oName, oId, bName, bId] = userText.split('|');
     return sendConfirmMatch(event, oName, oId, bName, bId);
