@@ -34,7 +34,7 @@ async function handleEvent(event) {
 
   const userId = event.source.userId;
   const userText = event.message.text.trim();
-  const now = dayjs().tz(); // เวลาปัจจุบันของไทย
+  const now = dayjs().tz();
 
   // 🛡️ เช็คสิทธิ์ Super Admin
   const { data: isSuper } = await supabase.from('super_admins').select('*').eq('line_user_id', userId).maybeSingle();
@@ -43,30 +43,25 @@ async function handleEvent(event) {
   // --- เมนูหลัก ---
   if (userText.toLowerCase() === 'admin') return sendFlexMainMenu(event);
   if (userText === 'เมนู Create') return sendFlexCreateMenu(event);
+  if (userText === 'จัดการการจับคู่') return showManageMatching(event);
 
-  // --- ระบบ Create (บันทึกเวลาไทยลง metadata ถ้าจำเป็น) ---
-    if (userText.startsWith('U') && userText.includes(' ')) {
+  // --- ระบบ Create ---
+  if (userText.startsWith('U') && userText.includes(' ')) {
     const parts = userText.split(' ');
-    const targetId = parts[0].substring(1); // ตัดตัว U ออก
+    const targetId = parts[0].substring(1);
     const name = parts.slice(1).join(' ');
     
     if (targetId.length >= 10) {
-      // ใช้เฉพาะ Column ที่เรามีชัวร์ๆ ใน Database
       const { error } = await supabase.from('branch_owners').upsert([
-        { 
-          owner_line_id: targetId, 
-          owner_name: name
-          // เอา updated_at ออกไปก่อนจนกว่าจะสร้าง column เสร็จ
-        }
-      ], { onConflict: 'owner_line_id' }); // บังคับว่าถ้า ID ซ้ำให้เขียนทับชื่อเดิม
+        { owner_line_id: targetId, owner_name: name }
+      ], { onConflict: 'owner_line_id' });
 
       return client.replyMessage(event.replyToken, { 
         type: 'text', 
-        text: error ? `❌ Error: ${error.message}` : `✅ บันทึก Owner: ${name} (ID: ${targetId}) เรียบร้อยค่ะ` 
+        text: error ? `❌ Error: ${error.message}` : `✅ บันทึก Owner: ${name} เรียบร้อยค่ะ` 
       });
     }
   }
-
 
   if (userText.startsWith('Branch ')) {
     const branchName = userText.replace('Branch ', '').trim();
@@ -74,10 +69,18 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ สร้างสาขา "${branchName}" สำเร็จ` });
   }
 
-  // --- สรุปยอดเมื่อวาน (ใช้การคำนวณวันที่ตามเวลาไทย) ---
-  if (userText === 'สรุปยอดเมื่อวาน') {
-    const yesterday = now.subtract(1, 'day').format('YYYY-MM-DD');
-    return client.replyMessage(event.replyToken, { type: 'text', text: `📊 ระบบกำลังประมวลผลยอดของวันที่ ${yesterday} (เวลาไทย) กรุณารอสักครู่ค่ะ...` });
+  // --- ระบบ Manage & Delete (ลบการจับคู่เดิม) ---
+  if (userText.startsWith('ยกเลิกการจับคู่ ID:')) {
+    const targetOwnerId = userText.replace('ยกเลิกการจับคู่ ID:', '').trim();
+    const { error } = await supabase
+      .from('branch_owners')
+      .update({ branch_id: null, paired_at: null })
+      .eq('owner_line_id', targetOwnerId);
+
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: error ? `❌ Error: ${error.message}` : `✅ ลบการจับคู่แล้วค่ะ คุณสามารถเลือกจับคู่ใหม่ได้ทันที`
+    });
   }
 
   // --- Flow การจับคู่ ---
@@ -106,7 +109,7 @@ async function handleEvent(event) {
 
     return client.replyMessage(event.replyToken, {
       type: 'text',
-      text: error ? `❌ Error: ${error.message}` : `✅ จับคู่ "${ownerName}" กับ "${branchName}" เรียบร้อยเมื่อ ${now.format('HH:mm')} น.`
+      text: error ? `❌ Error: ${error.message}` : `✅ จับคู่ "${ownerName}" กับ "${branchName}" สำเร็จ!`
     });
   }
 }
@@ -123,7 +126,7 @@ function sendFlexMainMenu(event) {
         type: "box", layout: "vertical", spacing: "md",
         contents: [
           { type: "button", style: "primary", color: "#1DB446", action: { type: "message", label: "➕ สร้าง/จัดการ", text: "เมนู Create" } },
-          { type: "button", style: "secondary", action: { type: "message", label: "📊 ยอดเมื่อวาน", text: "สรุปยอดเมื่อวาน" } }
+          { type: "button", style: "secondary", color: "#FF4B4B", action: { type: "message", label: "⚙️ จัดการการจับคู่", text: "จัดการการจับคู่" } }
         ]
       }
     }
@@ -139,8 +142,8 @@ function sendFlexCreateMenu(event) {
         type: "box", layout: "vertical", spacing: "sm",
         contents: [
           { type: "text", text: "CREATE & MATCHING", weight: "bold", margin: "md" },
-          { type: "button", style: "link", height: "sm", action: { type: "message", label: "สร้างOwner", text: "พิมพ์ U[ID] [ชื่อ]" } },
-          { type: "button", style: "link", height: "sm", action: { type: "message", label: "สร้างสาขา", text: "พิมพ์ Branch [ชื่อ]" } },
+          { type: "button", style: "link", height: "sm", action: { type: "message", label: "สร้างOwner", text: "U[ID] [ชื่อ]" } },
+          { type: "button", style: "link", height: "sm", action: { type: "message", label: "สร้างสาขา", text: "Branch [ชื่อ]" } },
           { type: "button", style: "primary", color: "#464a4d", margin: "md", action: { type: "message", label: "🔗 เริ่มการจับคู่", text: "เริ่มการจับคู่" } }
         ]
       }
@@ -155,14 +158,14 @@ async function showOwnerSelector(event) {
   const bubbles = owners.map(o => ({
     type: "bubble", size: "micro",
     body: {
-      type: "box", layout: "horizontal", spacing: "xs",
+      type: "box", layout: "vertical", spacing: "xs",
       contents: [
-        { type: "text", text: o.owner_name, weight: "bold", size: "xs", gravity: "center", flex: 3, wrap: true },
-        { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "✅", text: `เลือก Owner: ${o.owner_name} | ${o.owner_line_id}` } }
+        { type: "text", text: o.owner_name, weight: "bold", size: "sm", align: "center", wrap: true },
+        { type: "button", style: "primary", color: "#00b900", height: "sm", action: { type: "message", label: "เลือก", text: `เลือก Owner: ${o.owner_name} | ${o.owner_line_id}` } }
       ]
     }
   }));
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือก Owner", contents: { type: "carousel", contents: bubbles } });
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือก Owner", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
 }
 
 async function showBranchSelector(event, ownerId, ownerName) {
@@ -170,14 +173,36 @@ async function showBranchSelector(event, ownerId, ownerName) {
   const bubbles = branches.map(b => ({
     type: "bubble", size: "micro",
     body: {
-      type: "box", layout: "horizontal", spacing: "xs",
+      type: "box", layout: "vertical", spacing: "xs",
       contents: [
-        { type: "text", text: b.branch_name, weight: "bold", size: "xs", gravity: "center", flex: 3, wrap: true },
-        { type: "button", style: "secondary", color: "#464a4d", height: "sm", flex: 2, action: { type: "message", label: "✅", text: `ยืนยันจับคู่ O:${ownerId} B:${b.id} N:${ownerName} BN:${b.branch_name}` } }
+        { type: "text", text: b.branch_name, weight: "bold", size: "sm", align: "center", wrap: true },
+        { type: "button", style: "secondary", color: "#464a4d", height: "sm", action: { type: "message", label: "เลือก", text: `ยืนยันจับคู่ O:${ownerId} B:${b.id} N:${ownerName} BN:${b.branch_name}` } }
       ]
     }
   }));
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: { type: "carousel", contents: bubbles } });
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
+}
+
+async function showManageMatching(event) {
+  const { data: matched, error } = await supabase
+    .from('branch_owners')
+    .select('owner_line_id, owner_name, branch_id, branches(branch_name)')
+    .not('branch_id', 'is', null);
+
+  if (error || !matched?.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีข้อมูลการจับคู่ค่ะ' });
+
+  const bubbles = matched.map(item => ({
+    type: "bubble", size: "micro",
+    body: {
+      type: "box", layout: "vertical", spacing: "xs",
+      contents: [
+        { type: "text", text: `👤 ${item.owner_name}`, weight: "bold", size: "xs" },
+        { type: "text", text: `📍 ${item.branches?.branch_name || 'N/A'}`, size: "xs", color: "#666666" },
+        { type: "button", style: "primary", color: "#FF4B4B", height: "sm", margin: "xs", action: { type: "message", label: "🗑️ ลบ", text: `ยกเลิกการจับคู่ ID:${item.owner_line_id}` } }
+      ]
+    }
+  }));
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "จัดการการจับคู่", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
 }
 
 const PORT = process.env.PORT || 8080;
