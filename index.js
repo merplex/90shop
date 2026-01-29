@@ -27,29 +27,27 @@ async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') return null;
   const userText = event.message.text.trim();
 
-  // --- 1. Router หลัก สำหรับ Admin ---
-  if (userText.toLowerCase() === 'admin') return sendAdminMenu(event);
+  // --- Main Menu Router ---
+  // แก้ไขตรงนี้: เมื่อพิมพ์ admin ให้ส่งเมนูแบบ 2 ส่วน (สร้าง และ จัดการ)
+  if (userText.toLowerCase() === 'admin') return sendAdminMenu(event); 
+  if (userText === 'เมนูจัดการ') return sendManageMenu(event);
 
-  // --- 2. คำสั่งสร้าง (U... และ Branch ...) ---
-  if (userText.toUpperCase().startsWith('U') && userText.includes(' ')) {
-    return handleCreateOwner(event, userText);
-  }
-  if (userText.startsWith('Branch ')) {
-    return handleCreateBranch(event, userText);
-  }
+  // --- Create Owner & Branch (with Guardrails 100) ---
+  if (userText.toUpperCase().startsWith('U') && userText.includes(' ')) return handleCreateOwner(event, userText);
+  if (userText.startsWith('Branch ')) return handleCreateBranch(event, userText);
 
-  // --- 3. ระบบนำทาง Grid Index ---
+  // --- Alphabet Menu Selector ---
   if (userText === 'SELECT_GROUP_Owner') return sendAlphabetMenu(event, 'GRID_OWNER');
   if (userText === 'SELECT_GROUP_Branch') return sendAlphabetMenu(event, 'GRID_BRANCH');
   if (userText === 'SELECT_GROUP_Map') return sendAlphabetMenu(event, 'GRID_MAP');
   if (userText === 'SELECT_GROUP_StartMatch') return sendAlphabetMenu(event, 'MATCH_STEP1');
 
-  // --- 4. แสดง Grid ข้อมูล ---
+  // --- Grid Index Displays ---
   if (userText.startsWith('GRID_OWNER:')) return showGrid(event, 'owner', userText.split(':')[1]);
   if (userText.startsWith('GRID_BRANCH:')) return showGrid(event, 'branch', userText.split(':')[1]);
   if (userText.startsWith('GRID_MAP:')) return showGrid(event, 'map', userText.split(':')[1]);
 
-  // --- 5. Flow จับคู่ใหม่ ---
+  // --- Matching Flow Logic ---
   if (userText.startsWith('MATCH_STEP1:')) return showGrid(event, 'match_owner', userText.split(':')[1]);
   if (userText.startsWith('SEL_OWNER_FOR_MAP:')) {
     const ownerInfo = userText.replace('SEL_OWNER_FOR_MAP:', '');
@@ -64,11 +62,11 @@ async function handleEvent(event) {
     return sendConfirmMatch(event, ownerName, ownerId, branchName, branchId);
   }
 
-  // --- 6. CRUD Actions ---
+  // --- CRUD Actions ---
   if (userText.startsWith('MANAGE_OWNER:')) return showOwnerActionMenu(event, userText.split(':')[1]);
   if (userText.startsWith('DELETE_OWNER:')) {
     await supabase.from('branch_owners').delete().eq('owner_line_id', userText.split(':')[1]);
-    return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบ Owner เรียบร้อย' });
+    return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบ Owner และข้อมูลผูกพันเรียบร้อย' });
   }
   if (userText.startsWith('RENAME_OWNER:')) {
     const [id, newName] = userText.replace('RENAME_OWNER:', '').split('|');
@@ -78,7 +76,7 @@ async function handleEvent(event) {
   if (userText.startsWith('DO_MATCH:')) {
     const [oId, bId] = userText.replace('DO_MATCH:', '').split('|');
     await supabase.from('owner_branch_mapping').upsert([{ owner_line_id: oId, branch_id: bId }]);
-    return client.replyMessage(event.replyToken, { type: 'text', text: '✅ จับคู่สำเร็จเรียบร้อย' });
+    return client.replyMessage(event.replyToken, { type: 'text', text: '✅ จับคู่สำเร็จเรียบร้อยแล้วค่ะ' });
   }
   if (userText.startsWith('CONFIRM_DEL_MAP:')) {
     const [oId, bId] = userText.replace('CONFIRM_DEL_MAP:', '').split('|');
@@ -87,7 +85,7 @@ async function handleEvent(event) {
   }
 }
 
-// --- ฟังก์ชันแสดงเมนู Admin แบบ 2 ส่วน ---
+// --- ฟังก์ชันที่เปรมต้องการให้เพิ่มเข้าไป ---
 
 function sendAdminMenu(event) {
   return client.replyMessage(event.replyToken, {
@@ -99,26 +97,26 @@ function sendAdminMenu(event) {
         {
           type: "bubble",
           size: "sm",
-          header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "1. เมนูสร้าง", weight: "bold", color: "#1DB446" }] },
+          header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "เมนูสร้าง", weight: "bold", color: "#1DB446" }] },
           body: {
             type: "box", layout: "vertical", spacing: "sm",
             contents: [
-              { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "👤 สร้าง Owner", text: "พิมพ์ U[LineID] [ชื่อ]" } },
-              { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 สร้าง Branch", text: "พิมพ์ Branch [ชื่อ]" } },
-              { type: "button", style: "primary", color: "#1DB446", height: "sm", action: { type: "message", label: "🔗 เริ่มจับคู่", text: "SELECT_GROUP_StartMatch" } }
+              { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "สร้าง Owner", text: "พิมพ์ U[ID] [ชื่อ]" } },
+              { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "สร้าง Branch", text: "พิมพ์ Branch [ชื่อ]" } },
+              { type: "button", style: "primary", color: "#1DB446", height: "sm", action: { type: "message", label: "เริ่มจับคู่", text: "SELECT_GROUP_StartMatch" } }
             ]
           }
         },
         {
           type: "bubble",
           size: "sm",
-          header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "2. เมนูจัดการ", weight: "bold", color: "#464a4d" }] },
+          header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "เมนูจัดการ", weight: "bold", color: "#464a4d" }] },
           body: {
             type: "box", layout: "vertical", spacing: "sm",
             contents: [
-              { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "👤 แก้ไข Owner", text: "SELECT_GROUP_Owner" } },
-              { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 แก้ไข Branch", text: "SELECT_GROUP_Branch" } },
-              { type: "button", style: "primary", color: "#464a4d", height: "sm", action: { type: "message", label: "📋 ดูการจับคู่", text: "SELECT_GROUP_Map" } }
+              { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "แก้ไข Owner", text: "SELECT_GROUP_Owner" } },
+              { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "แก้ไข Branch", text: "SELECT_GROUP_Branch" } },
+              { type: "button", style: "primary", color: "#464a4d", height: "sm", action: { type: "message", label: "แก้ไข จับคู่ (ดู/ลบ)", text: "SELECT_GROUP_Map" } }
             ]
           }
         }
@@ -127,7 +125,7 @@ function sendAdminMenu(event) {
   });
 }
 
-// --- ฟังก์ชัน Logic การสร้าง (พร้อม Guardrails) ---
+// --- ส่วนที่เหลือ (Logic เดิมจากไฟล์ที่เปรมส่งมา) ---
 
 async function handleCreateOwner(event, text) {
   const parts = text.split(' ');
@@ -140,7 +138,7 @@ async function handleCreateOwner(event, text) {
     return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ กลุ่ม ${groupKey} เต็ม (100 ชื่อ)` });
   }
   await supabase.from('branch_owners').upsert([{ owner_line_id: id, owner_name: name }]);
-  return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึก Owner: ${name} เรียบร้อย` });
+  return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึก Owner: ${name}` });
 }
 
 async function handleCreateBranch(event, text) {
@@ -152,24 +150,7 @@ async function handleCreateBranch(event, text) {
     return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ กลุ่มสาขา ${groupKey} เต็ม (100 ชื่อ)` });
   }
   await supabase.from('branches').insert([{ branch_name: name }]);
-  return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึก Branch: ${name} เรียบร้อย` });
-}
-
-// --- ส่วน Grid และ Alphabet Menu (ใช้ Logic เดิมที่เสถียรแล้ว) ---
-
-function sendAlphabetMenu(event, nextCommandPrefix) {
-  const keys = Object.keys(ALPHABET_GROUPS);
-  const rows = chunkArray(keys, 3);
-  return client.replyMessage(event.replyToken, {
-    type: "flex", altText: "เลือกกลุ่มอักษร",
-    contents: {
-      type: "bubble", body: { type: "box", layout: "vertical", spacing: "xs", contents: rows.map(row => ({
-        type: "box", layout: "horizontal", spacing: "xs", contents: row.map(k => ({
-          type: "button", style: "secondary", height: "sm", action: { type: "message", label: k, text: `${nextCommandPrefix}:${k}` }
-        }))
-      })) }
-    }
-  });
+  return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึก Branch: ${name}` });
 }
 
 async function showGrid(event, type, range, extraData = null) {
@@ -197,7 +178,6 @@ async function showGrid(event, type, range, extraData = null) {
   } else if (type === 'map') {
     const { data } = await supabase.from('owner_branch_mapping').select('*, branch_owners(owner_name), branches(branch_name)');
     const filtered = data.filter(m => ALPHABET_GROUPS[range].includes(m.branches?.branch_name.charAt(0).toUpperCase()));
-    if (filtered.length >= 40) return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ กลุ่มการจับคู่ ${range} เต็ม (40 คู่)` });
     rows = chunkArray(filtered, 2).map(row => ({
       type: "box", layout: "horizontal", spacing: "sm",
       contents: row.map(m => ({
@@ -206,10 +186,32 @@ async function showGrid(event, type, range, extraData = null) {
       }))
     }));
   }
-
   return client.replyMessage(event.replyToken, {
     type: "flex", altText: "Grid View",
     contents: { type: "bubble", header: { type: "box", layout: "vertical", contents: [{ type: "text", text: `${type.toUpperCase()} INDEX: ${range}`, weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: rows.slice(0, 20) } }
+  });
+}
+
+function sendManageMenu(event) {
+  const options = [{l:"แก้ไข Owner",v:"Owner"}, {l:"แก้ไข Branch",v:"Branch"}, {l:"แก้ไข จับคู่ (ดู/ลบ)",v:"Map"}, {l:"เริ่มจับคู่ใหม่",v:"StartMatch"}];
+  return client.replyMessage(event.replyToken, {
+    type: "flex", altText: "Manage Menu",
+    contents: { type: "bubble", body: { type: "box", layout: "vertical", spacing: "sm", contents: options.map(o => ({ type: "button", style: "primary", color: "#1DB446", action: { type: "message", label: o.l, text: `SELECT_GROUP_${o.v}` } })) } }
+  });
+}
+
+function sendAlphabetMenu(event, nextCommandPrefix) {
+  const keys = Object.keys(ALPHABET_GROUPS);
+  const rows = chunkArray(keys, 3);
+  return client.replyMessage(event.replyToken, {
+    type: "flex", altText: "Select Group",
+    contents: {
+      type: "bubble", body: { type: "box", layout: "vertical", spacing: "xs", contents: rows.map(row => ({
+        type: "box", layout: "horizontal", spacing: "xs", contents: row.map(k => ({
+          type: "button", style: "secondary", height: "sm", action: { type: "message", label: k, text: `${nextCommandPrefix}:${k}` }
+        }))
+      })) }
+    }
   });
 }
 
@@ -218,7 +220,7 @@ function showOwnerActionMenu(event, data) {
   return client.replyMessage(event.replyToken, {
     type: "flex", altText: "Manage Owner",
     contents: { type: "bubble", size: "sm", body: { type: "box", layout: "vertical", spacing: "md", contents: [
-      { type: "text", text: `จัดการ Owner: ${name}`, weight: "bold" },
+      { type: "text", text: `Owner: ${name}`, weight: "bold" },
       { type: "button", style: "primary", color: "#FF4B4B", action: { type: "message", label: "🗑️ ลบข้อมูล", text: `DELETE_OWNER:${id}` } },
       { type: "button", style: "primary", action: { type: "message", label: "✏️ แก้ไขชื่อ", text: `RENAME_OWNER:${id}|[พิมพ์ชื่อใหม่]` } }
     ] } }
@@ -243,4 +245,4 @@ function chunkArray(arr, size) {
 }
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Thai Admin System v5.3 running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Thai Admin System v5.Final running on port ${PORT}`));
