@@ -58,36 +58,48 @@ async function handleEvent(event) {
     return sendAlphabetMenu(event, `MATCH_STEP2|${ownerInfo}`);
   }
   if (userText.startsWith('MATCH_STEP2|')) {
-    // แยกส่วนโดยใช้ทั้ง | และ : เป็นตัวคั่น
-    // โครงสร้างที่ส่งมา: MATCH_STEP2|ชื่อOwner|ID_Owner:กลุ่มตัวอักษร
-    const mainParts = userText.split('|'); // [ "MATCH_STEP2", "ชื่อOwner", "ID_Owner:กลุ่มตัวอักษร" ]
+    const mainParts = userText.split('|');
     const ownerName = mainParts[1];
-    const subParts = mainParts[2].split(':'); // [ "ID_Owner", "กลุ่มตัวอักษร" ]
-    
+    const subParts = mainParts[2].split(':');
     const ownerId = subParts[0];
     const range = subParts[1];
-    const ownerInfo = `${ownerName}|${ownerId}`;
-
-    return showGrid(event, 'match_branch', range, ownerInfo);
-}
+    return showGrid(event, 'match_branch', range, `${ownerName}|${ownerId}`);
+  }
   if (userText.startsWith('CONFIRM_MAP|')) {
     const [_, oName, oId, bName, bId] = userText.split('|');
     return sendConfirmMatch(event, oName, oId, bName, bId);
   }
 
-  // --- 5. CRUD Actions (จิ้มจากรายงานแล้วเด้งเมนู) ---
+  // --- 5. CRUD Actions (แก้ไข/ลบ/เปลี่ยนชื่อ) ---
   if (userText.startsWith('MANAGE_OWNER:')) return showOwnerActionMenu(event, userText.replace('MANAGE_OWNER:',''));
   if (userText.startsWith('MANAGE_BRANCH:')) return showBranchActionMenu(event, userText.replace('MANAGE_BRANCH:',''));
 
+  // ลบ Owner
   if (userText.startsWith('DELETE_OWNER:')) {
     await supabase.from('branch_owners').delete().eq('owner_line_id', userText.split(':')[1]);
-    return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบเรียบร้อย' });
+    return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบเจ้าของเรียบร้อย' });
   }
+  // ลบ Branch (เพิ่มใหม่)
+  if (userText.startsWith('DELETE_BRANCH:')) {
+    await supabase.from('branches').delete().eq('id', userText.split(':')[1]);
+    return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบสาขาเรียบร้อย' });
+  }
+  // เปลี่ยนชื่อ Owner
   if (userText.startsWith('RENAME_OWNER:')) {
     const [id, newName] = userText.replace('RENAME_OWNER:', '').split('|');
+    if (!newName || newName === '[ชื่อใหม่]') return null;
     await supabase.from('branch_owners').update({ owner_name: newName }).eq('owner_line_id', id);
-    return client.replyMessage(event.replyToken, { type: 'text', text: `✅ เปลี่ยนชื่อเป็น ${newName}` });
+    return client.replyMessage(event.replyToken, { type: 'text', text: `✅ เปลี่ยนชื่อเจ้าของเป็น ${newName}` });
   }
+  // เปลี่ยนชื่อ Branch (เพิ่มใหม่)
+  if (userText.startsWith('RENAME_BRANCH:')) {
+    const [id, newName] = userText.replace('RENAME_BRANCH:', '').split('|');
+    if (!newName || newName === '[ชื่อใหม่]') return null;
+    await supabase.from('branches').update({ branch_name: newName }).eq('id', id);
+    return client.replyMessage(event.replyToken, { type: 'text', text: `✅ เปลี่ยนชื่อสาขาเป็น ${newName}` });
+  }
+
+  // จับคู่ & ยกเลิกคู่
   if (userText.startsWith('DO_MATCH:')) {
     const [oId, bId] = userText.replace('DO_MATCH:', '').split('|');
     await supabase.from('owner_branch_mapping').upsert([{ owner_line_id: oId, branch_id: bId }]);
@@ -100,8 +112,7 @@ async function handleEvent(event) {
   }
 }
 
-// --- Flex Menu Admin แบบ Carousel (แก้ไขใหม่ให้ Valid 100%) ---
-// ... (ส่วนหัวเหมือนเดิมจนถึงฟังก์ชัน sendAdminMenu)
+// --- ฟังก์ชัน UI & Menus ---
 
 function sendAdminMenu(event) {
   const flexJson = {
@@ -109,15 +120,9 @@ function sendAdminMenu(event) {
     contents: [
       {
         type: "bubble",
-        header: {
-          type: "box",
-          layout: "vertical",
-          contents: [{ type: "text", text: "1. เมนูสร้าง", weight: "bold", color: "#1DB446", size: "lg" }]
-        },
+        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "1. เมนูสร้าง", weight: "bold", color: "#1DB446", size: "lg" }] },
         body: {
-          type: "box",
-          layout: "vertical",
-          spacing: "md",
+          type: "box", layout: "vertical", spacing: "md",
           contents: [
             { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "👤 สร้าง Owner", text: "U[ID] [ชื่อ]" } },
             { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 สร้าง Branch", text: "Branch [ชื่อ]" } },
@@ -128,15 +133,9 @@ function sendAdminMenu(event) {
       },
       {
         type: "bubble",
-        header: {
-          type: "box",
-          layout: "vertical",
-          contents: [{ type: "text", text: "2. เมนูจัดการ", weight: "bold", color: "#464a4d", size: "lg" }]
-        },
+        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "2. เมนูจัดการ", weight: "bold", color: "#464a4d", size: "lg" }] },
         body: {
-          type: "box",
-          layout: "vertical",
-          spacing: "md",
+          type: "box", layout: "vertical", spacing: "md",
           contents: [
             { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📝 แก้ไข Owner", text: "SELECT_GROUP_Owner" } },
             { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 แก้ไข Branch", text: "SELECT_GROUP_Branch" } },
@@ -146,21 +145,8 @@ function sendAdminMenu(event) {
       }
     ]
   };
-
-  return client.replyMessage(event.replyToken, {
-    type: "flex",
-    altText: "Admin Menu",
-    contents: flexJson
-  }).catch(err => {
-    // พ่น Error แบบละเอียดถ้ายังพังอีก
-    console.error("Admin Menu Error Detail:", JSON.stringify(err.originalError.response.data, null, 2));
-  });
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "Admin Menu", contents: flexJson });
 }
-
-// ... (ฟังก์ชันอื่น ๆ ด้านล่างคงเดิมตาม v5.7)
-
-
-// --- UI Grid & Actions ---
 
 async function showGrid(event, type, range, extraData = null) {
   let rows = [];
@@ -202,7 +188,17 @@ function showOwnerActionMenu(event, data) {
   const [name, id] = data.split('|');
   return client.replyMessage(event.replyToken, {
     type: "flex", altText: "Menu",
-    contents: { type: "bubble", size: "sm", body: { type: "box", layout: "vertical", spacing: "sm", contents: [{ type: "text", text: name, weight: "bold" }, { type: "button", style: "primary", color: "#FF4B4B", action: { type: "message", label: "ลบ", text: `DELETE_OWNER:${id}` } }, { type: "button", style: "secondary", action: { type: "message", label: "เปลี่ยนชื่อ", text: `RENAME_OWNER:${id}|[ชื่อใหม่]` } }] } }
+    contents: { 
+      type: "bubble", size: "sm", 
+      body: { 
+        type: "box", layout: "vertical", spacing: "sm", 
+        contents: [
+          { type: "text", text: `เจ้าของ: ${name}`, weight: "bold" }, 
+          { type: "button", style: "primary", color: "#FF4B4B", action: { type: "message", label: "ลบ", text: `DELETE_OWNER:${id}` } }, 
+          { type: "button", style: "secondary", action: { type: "message", label: "เปลี่ยนชื่อ", text: `RENAME_OWNER:${id}|[ชื่อใหม่]` } }
+        ] 
+      } 
+    }
   });
 }
 
@@ -210,37 +206,36 @@ function showBranchActionMenu(event, data) {
   const [name, id] = data.split('|');
   return client.replyMessage(event.replyToken, {
     type: "flex", altText: "Menu",
-    contents: { type: "bubble", size: "sm", body: { type: "box", layout: "vertical", spacing: "sm", contents: [{ type: "text", text: name, weight: "bold" }, { type: "button", style: "primary", color: "#FF4B4B", action: { type: "message", label: "ลบสาขา", text: `DELETE_BRANCH:${id}` } }] } }
+    contents: { 
+      type: "bubble", size: "sm", 
+      body: { 
+        type: "box", layout: "vertical", spacing: "sm", 
+        contents: [
+          { type: "text", text: `สาขา: ${name}`, weight: "bold" }, 
+          { type: "button", style: "primary", color: "#FF4B4B", action: { type: "message", label: "ลบสาขา", text: `DELETE_BRANCH:${id}` } },
+          { type: "button", style: "secondary", action: { type: "message", label: "เปลี่ยนชื่อสาขา", text: `RENAME_BRANCH:${id}|[ชื่อใหม่]` } }
+        ] 
+      } 
+    }
   });
 }
 
 // --- Helper Functions ---
-// --- แก้ไขจุดบันทึกชื่อเพี้ยน ---
 
 async function handleCreateOwner(event, text) {
-  // 1. ดักจับ: ถ้าเป็นข้อความตัวอย่าง "U[ID] [ชื่อ]" ให้ข้ามไปเลย ไม่ต้องบันทึก
   if (text.includes('[ID]') || text.includes('[ชื่อ]')) return null;
-
   const parts = text.split(' ');
   const id = parts[0].trim();
   const name = parts.slice(1).join(' ').trim();
-
-  // 2. เช็กซ้ำอีกทีเพื่อความชัวร์ว่าไม่ใช่ค่าว่าง
   if (!id || !name) return null;
-
   await supabase.from('branch_owners').upsert([{ owner_line_id: id, owner_name: name }]);
   return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึกเจ้าของ: ${name}` });
 }
 
 async function handleCreateBranch(event, text) {
-  // 1. ดักจับ: ถ้าเป็นข้อความตัวอย่าง "Branch [ชื่อ]" ให้ข้ามไปเลย
   if (text.includes('[ชื่อ]')) return null;
-
   const name = text.replace('Branch ', '').trim();
-
-  // 2. เช็กว่าพิมพ์ชื่อมาจริงๆ
   if (!name) return null;
-
   await supabase.from('branches').insert([{ branch_name: name }]);
   return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึกสาขา: ${name}` });
 }
@@ -251,12 +246,14 @@ function sendAlphabetMenu(event, prefix) {
   const flex = { type: "bubble", body: { type: "box", layout: "vertical", spacing: "xs", contents: rows.map(r => ({ type: "box", layout: "horizontal", spacing: "xs", contents: r.map(k => ({ type: "button", style: "secondary", height: "sm", action: { type: "message", label: k, text: `${prefix}:${k}` } })) })) } };
   return client.replyMessage(event.replyToken, { type: "flex", altText: "Select", contents: flex });
 }
+
 function sendConfirmMatch(event, oName, oId, bName, bId) {
   const flex = { type: "bubble", body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: `👤 ${oName}\n📍 ${bName}`, wrap: true, align: "center" }, { type: "button", style: "primary", color: "#1DB446", action: { type: "message", label: "✅ ตกลง", text: `DO_MATCH:${oId}|${bId}` } }] } };
   return client.replyMessage(event.replyToken, { type: "flex", altText: "Confirm", contents: flex });
 }
+
 function chunkArray(arr, s) { const res = []; for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); return res; }
 function sendManageMenu(event) { return client.replyMessage(event.replyToken, { type: 'text', text: 'พิมพ์ admin เพื่อดูเมนูทั้งหมดค่ะ' }); }
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Thai Admin System v5.7 running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Thai Admin System v6.2 running on port ${PORT}`));
