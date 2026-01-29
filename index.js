@@ -139,8 +139,8 @@ function sendFlexCreateMenu(event) {
         type: "box", layout: "vertical", spacing: "sm",
         contents: [
           { type: "text", text: "CREATE & MATCHING", weight: "bold", margin: "md" },
-          { type: "button", style: "link", height: "sm", action: { type: "message", label: "วิธีสร้าง Owner", text: "พิมพ์ U[ID] [ชื่อ]" } },
-          { type: "button", style: "link", height: "sm", action: { type: "message", label: "วิธีสร้างสาขา", text: "พิมพ์ Branch [ชื่อ]" } },
+          { type: "button", style: "link", height: "sm", action: { type: "message", label: "สร้างOwner", text: "พิมพ์ U[ID] [ชื่อ]" } },
+          { type: "button", style: "link", height: "sm", action: { type: "message", label: "สร้างสาขา", text: "พิมพ์ Branch [ชื่อ]" } },
           { type: "button", style: "primary", color: "#464a4d", margin: "md", action: { type: "message", label: "🔗 เริ่มการจับคู่", text: "เริ่มการจับคู่" } }
         ]
       }
