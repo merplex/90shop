@@ -92,16 +92,23 @@ async function handleEvent(event) {
 }
 
 // --- Flex Menu Admin แบบ Carousel (แก้ไขใหม่ให้ Valid 100%) ---
+// ... (ส่วนหัวเหมือนเดิมจนถึงฟังก์ชัน sendAdminMenu)
 
 function sendAdminMenu(event) {
-  const carousel = {
+  const flexJson = {
     type: "carousel",
     contents: [
       {
-        type: "bubble", size: "sm",
-        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "1. สร้าง", weight: "bold", color: "#1DB446" }] },
+        type: "bubble",
+        header: {
+          type: "box",
+          layout: "vertical",
+          contents: [{ type: "text", text: "1. เมนูสร้าง", weight: "bold", color: "#1DB446", size: "lg" }]
+        },
         body: {
-          type: "box", layout: "vertical", spacing: "sm",
+          type: "box",
+          layout: "vertical",
+          spacing: "md",
           contents: [
             { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "👤 สร้าง Owner", text: "U[ID] [ชื่อ]" } },
             { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 สร้าง Branch", text: "Branch [ชื่อ]" } },
@@ -111,10 +118,16 @@ function sendAdminMenu(event) {
         }
       },
       {
-        type: "bubble", size: "sm",
-        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "2. จัดการ", weight: "bold", color: "#464a4d" }] },
+        type: "bubble",
+        header: {
+          type: "box",
+          layout: "vertical",
+          contents: [{ type: "text", text: "2. เมนูจัดการ", weight: "bold", color: "#464a4d", size: "lg" }]
+        },
         body: {
-          type: "box", layout: "vertical", spacing: "sm",
+          type: "box",
+          layout: "vertical",
+          spacing: "md",
           contents: [
             { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📝 แก้ไข Owner", text: "SELECT_GROUP_Owner" } },
             { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 แก้ไข Branch", text: "SELECT_GROUP_Branch" } },
@@ -124,9 +137,19 @@ function sendAdminMenu(event) {
       }
     ]
   };
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "Admin Menu", contents: carousel })
-    .catch(err => console.error("Admin Menu Error:", err.originalError.response.data));
+
+  return client.replyMessage(event.replyToken, {
+    type: "flex",
+    altText: "Admin Menu",
+    contents: flexJson
+  }).catch(err => {
+    // พ่น Error แบบละเอียดถ้ายังพังอีก
+    console.error("Admin Menu Error Detail:", JSON.stringify(err.originalError.response.data, null, 2));
+  });
 }
+
+// ... (ฟังก์ชันอื่น ๆ ด้านล่างคงเดิมตาม v5.7)
+
 
 // --- UI Grid & Actions ---
 
