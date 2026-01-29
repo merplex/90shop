@@ -189,7 +189,8 @@ function showOwnerActionMenu(event, data) {
   return client.replyMessage(event.replyToken, {
     type: "flex", altText: "Menu",
     contents: { 
-      type: "bubble", size: "sm", 
+      type: "bubble", 
+      // ลบ size: "sm" ออกจากตรงนี้
       body: { 
         type: "box", layout: "vertical", spacing: "sm", 
         contents: [
@@ -202,12 +203,14 @@ function showOwnerActionMenu(event, data) {
   });
 }
 
+
 function showBranchActionMenu(event, data) {
   const [name, id] = data.split('|');
   return client.replyMessage(event.replyToken, {
     type: "flex", altText: "Menu",
     contents: { 
-      type: "bubble", size: "sm", 
+      type: "bubble", 
+      // ลบ size: "sm" ออกจากตรงนี้เช่นกัน
       body: { 
         type: "box", layout: "vertical", spacing: "sm", 
         contents: [
@@ -219,6 +222,7 @@ function showBranchActionMenu(event, data) {
     }
   });
 }
+
 
 // --- Helper Functions ---
 
