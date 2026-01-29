@@ -98,40 +98,38 @@ async function handleEvent(event) {
 
 // 1. ฟังก์ชันแสดงเมนู (จะเห็นปุ่ม A-M และ N-Z แน่นอนถ้ามีชื่อ A B C...)
 async function sendAlphabetMenu(event) {
-  const { data: owners } = await supabase.from('branch_owners').select('owner_name');
+  const { data: owners, error } = await supabase.from('branch_owners').select('owner_name');
   
-  // นิยามกลุ่มให้ชัดเจน
+  // 🔍 เพิ่มบรรทัดนี้เพื่อดู Log ใน Terminal/Console
+  console.log("ข้อมูล Owner ที่ดึงได้:", owners);
+  if (error) console.error("Supabase Error:", error);
+
   const groups = [
     { label: "A-M", range: "ABCDEFGHIJKLM".split("") },
     { label: "N-Z", range: "NOPQRSTUVWXYZ".split("") },
     { label: "ก-ฮ", range: "กขคฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ".split("") }
   ];
 
-  // กรองปุ่ม: เช็กที่ตัวแรกของ owner_name เท่านั้น
+  // ลองปรับ Logic ให้ยืดหยุ่นขึ้น (ตัดช่องว่างออกก่อนเช็ค)
   const activeGroups = groups.filter(group => 
     owners?.some(o => {
-      const firstChar = o.owner_name?.trim().charAt(0).toUpperCase();
+      if (!o.owner_name) return false;
+      const firstChar = o.owner_name.trim().charAt(0).toUpperCase();
       return group.range.includes(firstChar);
     })
   );
 
-  if (activeGroups.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีรายชื่อ Owner ในระบบค่ะ' });
-
-  return client.replyMessage(event.replyToken, {
-    type: "flex", altText: "เลือกกลุ่ม Owner",
-    contents: {
-      type: "bubble",
-      header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "เลือกกลุ่มเจ้าของ", weight: "bold", color: "#1DB446" }] },
-      body: {
-        type: "box", layout: "vertical", spacing: "sm",
-        contents: activeGroups.map(g => ({
-          type: "button", style: "primary", color: "#1DB446", height: "sm",
-          action: { type: "message", label: g.label, text: `กลุ่มตัวอักษร: ${g.label}` }
-        }))
-      }
-    }
-  });
+  if (activeGroups.length === 0) {
+    // 🔍 ถ้าหาไม่เจอ ให้บอกด้วยว่าชื่อตัวแรกที่เจอคืออะไร
+    const firstNames = owners?.map(o => o.owner_name.charAt(0)).join(", ");
+    return client.replyMessage(event.replyToken, { 
+      type: 'text', 
+      text: `ไม่พบกลุ่มที่ตรงกับชื่อที่มีค่ะ (ชื่อขึ้นต้นด้วย: ${firstNames || 'ไม่มีข้อมูล'})` 
+    });
+  }
+  // ... ส่วนที่เหลือคงเดิม ...
 }
+
 
 async function showOwnerSelector(event, rangeLabel) {
   const { data: owners } = await supabase.from('branch_owners').select('*').order('owner_name', { ascending: true });
