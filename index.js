@@ -100,25 +100,28 @@ async function handleEvent(event) {
 async function sendAlphabetMenu(event) {
   const { data: owners } = await supabase.from('branch_owners').select('owner_name');
   
+  // นิยามกลุ่มให้ชัดเจน
   const groups = [
     { label: "A-M", range: "ABCDEFGHIJKLM".split("") },
     { label: "N-Z", range: "NOPQRSTUVWXYZ".split("") },
-    { label: "ก-จ", range: ["ก","ข","ค","ฆ","ง","จ","ฉ","ช","ท","ญ","ณ","ด","ต","ถ","ธ","ท"] },
-    { label: "ย-ฮ", range: ["น","บ","ป","ผ","ฝ","พ","ฟ","ม","ย","ร","ล","ว","ศ","ส","ห","อ"] }
+    { label: "ก-ฮ", range: "กขคฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ".split("") }
   ];
 
-  // ระบบจะกรองปุ่ม: ถ้าเรมีชื่อ A B C กลุ่ม A-M ต้องขึ้น / มี X Y Z กลุ่ม N-Z ต้องขึ้น
+  // กรองปุ่ม: เช็กที่ตัวแรกของ owner_name เท่านั้น
   const activeGroups = groups.filter(group => 
-    owners?.some(o => group.range.includes(o.owner_name.trim().charAt(0).toUpperCase()))
+    owners?.some(o => {
+      const firstChar = o.owner_name?.trim().charAt(0).toUpperCase();
+      return group.range.includes(firstChar);
+    })
   );
 
-  if (activeGroups.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบรายชื่อ Owner ในระบบค่ะ' });
+  if (activeGroups.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีรายชื่อ Owner ในระบบค่ะ' });
 
   return client.replyMessage(event.replyToken, {
     type: "flex", altText: "เลือกกลุ่ม Owner",
     contents: {
       type: "bubble",
-      header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "เลือกกลุ่มเจ้าของ (A-Z)", weight: "bold", color: "#1DB446" }] },
+      header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "เลือกกลุ่มเจ้าของ", weight: "bold", color: "#1DB446" }] },
       body: {
         type: "box", layout: "vertical", spacing: "sm",
         contents: activeGroups.map(g => ({
@@ -130,20 +133,23 @@ async function sendAlphabetMenu(event) {
   });
 }
 
-
 async function showOwnerSelector(event, rangeLabel) {
   const { data: owners } = await supabase.from('branch_owners').select('*').order('owner_name', { ascending: true });
-  const groups = {
-    "ก-จ": ["ก","ข","ค","ฆ","ง","จ"],
-    "ฉ-ต": ["ฉ","ช","ซ","ฌ","ญ","ฎ","ฏ","ฐ","ฑ","ฒ","ณ","ด","ต"],
-    "ถ-ม": ["ถ","ท","ธ","น","บ","ป","ผ","ฝ","พ","ฟ","ภ","ม"],
-    "ย-ฮ": ["ย","ร","ล","ว","ศ","ษ","ส","ห","ฬ","อ","ฮ"],
+  
+  const alphabet = {
     "A-M": "ABCDEFGHIJKLM".split(""),
-    "N-Z": "NOPQRSTUVWXYZ".split("")
+    "N-Z": "NOPQRSTUVWXYZ".split(""),
+    "ก-ฮ": "กขคฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ".split("")
   };
 
-  const filtered = owners.filter(o => groups[rangeLabel].includes(o.owner_name.trim().charAt(0).toUpperCase()));
-  
+  // กรองเฉพาะชื่อที่อยู่ในกลุ่มที่เลือก
+  const filtered = owners.filter(o => {
+    const firstChar = o.owner_name?.trim().charAt(0).toUpperCase();
+    return alphabet[rangeLabel].includes(firstChar);
+  });
+
+  if (filtered.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบรายชื่อในกลุ่มนี้ค่ะ' });
+
   const chunks = [];
   for (let i = 0; i < filtered.length; i += 10) chunks.push(filtered.slice(i, i + 10));
 
@@ -164,6 +170,7 @@ async function showOwnerSelector(event, rangeLabel) {
 
   return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือก Owner", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
 }
+
 
 async function showBranchSelector(event, ownerId, ownerName) {
   const { data: branches } = await supabase.from('branches').select('*');
