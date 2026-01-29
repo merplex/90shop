@@ -28,6 +28,7 @@ async function handleEvent(event) {
   const userText = event.message.text.trim();
 
   // --- Main Menu Router ---
+  if (userText.toLowerCase() === 'admin') return sendAdminMenu(event); // เพิ่มบรรทัดนี้ค่ะ
   if (userText === 'เมนูจัดการ') return sendManageMenu(event);
 
   // --- Create Owner & Branch (with Guardrails 100) ---
@@ -153,6 +154,23 @@ async function showGrid(event, type, range, extraData = null) {
 }
 
 // --- UI Helpers ---
+function sendAdminMenu(event) {
+  return client.replyMessage(event.replyToken, {
+    type: "flex", altText: "Admin Menu",
+    contents: {
+      type: "bubble",
+      header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "ADMIN MENU", weight: "bold", color: "#1DB446" }] },
+      body: {
+        type: "box", layout: "vertical", spacing: "md",
+        contents: [
+          { type: "button", style: "primary", color: "#1DB446", action: { type: "message", label: "➕ สร้าง/จัดการ", text: "เมนูจัดการ" } },
+          { type: "button", style: "secondary", color: "#464a4d", action: { type: "message", label: "🔗 เริ่มจับคู่ใหม่", text: "SELECT_GROUP_StartMatch" } }
+        ]
+      }
+    }
+  });
+}
+
 function sendManageMenu(event) {
   const options = [{l:"แก้ไข Owner",v:"Owner"}, {l:"แก้ไข Branch",v:"Branch"}, {l:"แก้ไข จับคู่ (ดู/ลบ)",v:"Map"}, {l:"เริ่มจับคู่ใหม่",v:"StartMatch"}];
   return client.replyMessage(event.replyToken, {
