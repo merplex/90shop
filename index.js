@@ -23,7 +23,7 @@ app.post('/webhook', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent))
     .then((result) => res.json(result))
     .catch((err) => {
-      console.error(err);
+      console.error("Webhook Error:", err.message); // ดูแค่ข้อความ Error สั้นๆ
       res.status(500).end();
     });
 });
@@ -49,169 +49,150 @@ async function handleEvent(event) {
     return showOwnerSelector(event, range);
   }
 
-  // --- Create Owner & Branch ---
+  // --- ระบบบันทึก Owner ---
   if (userText.startsWith('U') && userText.includes(' ')) {
     const parts = userText.split(' ');
     const targetId = parts[0].trim();
     const name = parts.slice(1).join(' ');
     if (targetId.length >= 10) {
-      const { error } = await supabase.from('branch_owners').upsert([{ owner_line_id: targetId, owner_name: name }], { onConflict: 'owner_line_id' });
-      return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ บันทึก Owner: ${name} (ID: ${targetId}) เรียบร้อยค่ะ` });
+      await supabase.from('branch_owners').upsert([{ owner_line_id: targetId, owner_name: name }], { onConflict: 'owner_line_id' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึก Owner: ${name} แล้ว` });
     }
   }
 
+  // --- ระบบสร้างสาขา ---
   if (userText.startsWith('Branch ')) {
     const branchName = userText.replace('Branch ', '').trim();
-    const { error } = await supabase.from('branches').insert([{ branch_name: branchName, created_at: now.format() }]);
-    return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ สร้างสาขา "${branchName}" สำเร็จ` });
+    await supabase.from('branches').insert([{ branch_name: branchName }]);
+    return client.replyMessage(event.replyToken, { type: 'text', text: `✅ สร้างสาขา "${branchName}" สำเร็จ` });
   }
 
-  // --- Delete Matching (Many-to-Many) ---
+  // --- ยกเลิกการจับคู่ ---
   if (userText.startsWith('ยกเลิกการจับคู่ ID:')) {
     const data = userText.replace('ยกเลิกการจับคู่ ID:', '').split('|');
-    const targetOwnerId = data[0].trim();
-    const targetBranchId = data[1].trim();
-    const { error } = await supabase.from('owner_branch_mapping').delete().eq('owner_line_id', targetOwnerId).eq('branch_id', targetBranchId);
-    return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ ยกเลิกการเชื่อมต่อเรียบร้อยค่ะ` });
+    await supabase.from('owner_branch_mapping').delete().eq('owner_line_id', data[0]).eq('branch_id', data[1]);
+    return client.replyMessage(event.replyToken, { type: 'text', text: `✅ ลบการจับคู่เรียบร้อย` });
   }
 
   // --- Matching Flow ---
   if (userText.startsWith('เลือก Owner:')) {
     const parts = userText.split('|');
-    const ownerName = parts[0].replace('เลือก Owner:', '').trim();
     const ownerId = parts[1].trim();
+    const ownerName = parts[0].replace('เลือก Owner:', '').trim();
     return showBranchSelector(event, ownerId, ownerName);
   }
 
   if (userText.startsWith('ยืนยันจับคู่ ')) {
-    const params = userText.replace('ยืนยันจับคู่ ', '').split(' ');
-    const ownerId = params[0].split(':')[1];
-    const branchId = params[1].split(':')[1];
-    const ownerName = params[2].split(':')[1];
-    const branchName = params[3]?.split(':')[1] || 'สาขา';
+    // แยกค่าด้วยการหา Key O: B: N: BN:
+    const ownerId = userText.match(/O:(\S+)/)[1];
+    const branchId = userText.match(/B:(\S+)/)[1];
+    const ownerName = userText.match(/N:([^\s]+)/)[1];
+    const branchName = userText.match(/BN:([^\s]+)/)[1];
+    
     const { error } = await supabase.from('owner_branch_mapping').insert([{ owner_line_id: ownerId, branch_id: branchId }]);
-    return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ จับคู่ "${ownerName}" กับ "${branchName}" เรียบร้อย!` });
+    return client.replyMessage(event.replyToken, { 
+        type: 'text', 
+        text: error ? `❌ ซ้ำ: คู่นี้มีอยู่แล้วค่ะ` : `✅ จับคู่ ${ownerName} - ${branchName} สำเร็จ` 
+    });
   }
 }
 
 // --- Functions ---
 
-// 1. ฟังก์ชันแสดงเมนู (จะเห็นปุ่ม A-M และ N-Z แน่นอนถ้ามีชื่อ A B C...)
 async function sendAlphabetMenu(event) {
-  const { data: owners, error } = await supabase.from('branch_owners').select('owner_name');
-  
-  // 🔍 เพิ่มบรรทัดนี้เพื่อดู Log ใน Terminal/Console
-  console.log("ข้อมูล Owner ที่ดึงได้:", owners);
-  if (error) console.error("Supabase Error:", error);
-
   const groups = [
     { label: "A-M", range: "ABCDEFGHIJKLM".split("") },
     { label: "N-Z", range: "NOPQRSTUVWXYZ".split("") },
     { label: "ก-ฮ", range: "กขคฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ".split("") }
   ];
 
-  // ลองปรับ Logic ให้ยืดหยุ่นขึ้น (ตัดช่องว่างออกก่อนเช็ค)
-  const activeGroups = groups.filter(group => 
-    owners?.some(o => {
-      if (!o.owner_name) return false;
-      const firstChar = o.owner_name.trim().charAt(0).toUpperCase();
-      return group.range.includes(firstChar);
-    })
-  );
-
-  if (activeGroups.length === 0) {
-    // 🔍 ถ้าหาไม่เจอ ให้บอกด้วยว่าชื่อตัวแรกที่เจอคืออะไร
-    const firstNames = owners?.map(o => o.owner_name.charAt(0)).join(", ");
-    return client.replyMessage(event.replyToken, { 
-      type: 'text', 
-      text: `ไม่พบกลุ่มที่ตรงกับชื่อที่มีค่ะ (ชื่อขึ้นต้นด้วย: ${firstNames || 'ไม่มีข้อมูล'})` 
-    });
-  }
-  // ... ส่วนที่เหลือคงเดิม ...
+  return client.replyMessage(event.replyToken, {
+    type: "flex", altText: "เลือกกลุ่ม Owner",
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box", layout: "vertical", spacing: "sm",
+        contents: [
+          { type: "text", text: "เลือกกลุ่มชื่อเจ้าของ", weight: "bold", size: "lg" },
+          ...groups.map(g => ({
+            type: "button", style: "primary", color: "#1DB446", margin: "xs",
+            action: { type: "message", label: g.label, text: `กลุ่มตัวอักษร: ${g.label}` }
+          }))
+        ]
+      }
+    }
+  });
 }
 
-
 async function showOwnerSelector(event, rangeLabel) {
-  const { data: owners } = await supabase.from('branch_owners').select('*').order('owner_name', { ascending: true });
-  
-  const alphabet = {
+  const { data: owners } = await supabase.from('branch_owners').select('*').order('owner_name');
+  const groups = {
     "A-M": "ABCDEFGHIJKLM".split(""),
     "N-Z": "NOPQRSTUVWXYZ".split(""),
     "ก-ฮ": "กขคฆงจฉชซฌญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ".split("")
   };
 
-  // กรองเฉพาะชื่อที่อยู่ในกลุ่มที่เลือก
-  const filtered = owners.filter(o => {
-    const firstChar = o.owner_name?.trim().charAt(0).toUpperCase();
-    return alphabet[rangeLabel].includes(firstChar);
-  });
+  const filtered = owners.filter(o => groups[rangeLabel].includes(o.owner_name.trim().charAt(0).toUpperCase()));
+  if (filtered.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบรายชื่อในกลุ่มนี้' });
 
-  if (filtered.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบรายชื่อในกลุ่มนี้ค่ะ' });
-
-  const chunks = [];
-  for (let i = 0; i < filtered.length; i += 10) chunks.push(filtered.slice(i, i + 10));
-
-  const bubbles = chunks.map(chunk => ({
-    type: "bubble",
-    header: { type: "box", layout: "vertical", contents: [{ type: "text", text: `รายชื่อกลุ่ม ${rangeLabel}`, size: "sm", weight: "bold" }] },
-    body: {
-      type: "box", layout: "vertical", spacing: "md",
-      contents: chunk.map(o => ({
-        type: "box", layout: "horizontal", verticalAlign: "center",
-        contents: [
-          { type: "text", text: o.owner_name, weight: "bold", size: "sm", flex: 3, wrap: true },
-          { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "เลือก", text: `เลือก Owner: ${o.owner_name} | ${o.owner_line_id}` } }
-        ]
-      }))
-    }
-  }));
-
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือก Owner", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
-}
-
-
-async function showBranchSelector(event, ownerId, ownerName) {
-  const { data: branches } = await supabase.from('branches').select('*');
-  const bubbles = branches.map(b => ({
+  const bubbles = filtered.slice(0, 10).map(o => ({
     type: "bubble", size: "micro",
     body: {
-      type: "box", layout: "vertical", spacing: "xs",
-      contents: [
-        { type: "text", text: b.branch_name, weight: "bold", size: "sm", align: "center", wrap: true },
-        { type: "button", style: "secondary", color: "#464a4d", height: "sm", action: { type: "message", label: "เลือก", text: `ยืนยันจับคู่ O:${ownerId} B:${b.id} N:${ownerName} BN:${b.branch_name}` } }
+      type: "box", layout: "vertical", contents: [
+        { type: "text", text: o.owner_name, weight: "bold", align: "center" },
+        { type: "button", style: "primary", color: "#00b900", height: "sm", margin: "md",
+          action: { type: "message", label: "เลือก", text: `เลือก Owner: ${o.owner_name} | ${o.owner_line_id}` }
+        }
       ]
     }
   }));
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
+
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือก Owner", contents: { type: "carousel", contents: bubbles } });
+}
+
+async function showBranchSelector(event, ownerId, ownerName) {
+  const { data: branches } = await supabase.from('branches').select('*').order('branch_name');
+  const bubbles = branches.slice(0, 10).map(b => ({
+    type: "bubble", size: "micro",
+    body: {
+      type: "box", layout: "vertical", contents: [
+        { type: "text", text: b.branch_name, weight: "bold", align: "center" },
+        { type: "button", style: "secondary", height: "sm", margin: "md",
+          action: { type: "message", label: "เลือก", text: `ยืนยันจับคู่ O:${ownerId} B:${b.id} N:${ownerName} BN:${b.branch_name}` }
+        }
+      ]
+    }
+  }));
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: { type: "carousel", contents: bubbles } });
 }
 
 async function showManageMatching(event) {
-  const { data: mappings, error } = await supabase.from('owner_branch_mapping').select('owner_line_id, branch_id, branch_owners(owner_name), branches(branch_name)');
-  if (error || !mappings?.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีข้อมูลการจับคู่ค่ะ' });
+  const { data: mappings } = await supabase.from('owner_branch_mapping').select('owner_line_id, branch_id, branch_owners(owner_name), branches(branch_name)');
+  if (!mappings?.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีข้อมูลการจับคู่' });
 
-  const bubbles = mappings.map(item => ({
+  const bubbles = mappings.slice(0, 10).map(item => ({
     type: "bubble", size: "micro",
     body: {
       type: "box", layout: "vertical", spacing: "xs",
       contents: [
-        { type: "text", text: `👤 ${item.branch_owners?.owner_name || 'N/A'}`, weight: "bold", size: "xs", wrap: true },
-        { type: "text", text: `📍 ${item.branches?.branch_name || 'N/A'}`, size: "xs", color: "#666666", wrap: true },
-        { type: "button", style: "primary", color: "#FF4B4B", height: "sm", margin: "xs", action: { type: "message", label: "🗑️ ลบ", text: `ยกเลิกการจับคู่ ID:${item.owner_line_id}|${item.branch_id}` } }
+        { type: "text", text: `👤 ${item.branch_owners?.owner_name}`, weight: "bold", size: "xs" },
+        { type: "text", text: `📍 ${item.branches?.branch_name}`, size: "xs", color: "#666666" },
+        { type: "button", style: "primary", color: "#FF4B4B", height: "sm", action: { type: "message", label: "ลบ", text: `ยกเลิกการจับคู่ ID:${item.owner_line_id}|${item.branch_id}` } }
       ]
     }
   }));
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "จัดการการจับคู่", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "จัดการคู่", contents: { type: "carousel", contents: bubbles } });
 }
 
 function sendFlexMainMenu(event) {
   return client.replyMessage(event.replyToken, {
-    type: "flex", altText: "Admin Menu",
+    type: "flex", altText: "Menu",
     contents: {
       type: "bubble",
-      header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "ADMIN MENU", weight: "bold", color: "#1DB446" }] },
       body: {
         type: "box", layout: "vertical", spacing: "md",
         contents: [
+          { type: "text", text: "ADMIN MENU", weight: "bold", align: "center" },
           { type: "button", style: "primary", color: "#1DB446", action: { type: "message", label: "➕ สร้าง/จัดการ", text: "เมนู Create" } },
           { type: "button", style: "secondary", color: "#FF4B4B", action: { type: "message", label: "⚙️ จัดการการจับคู่", text: "จัดการการจับคู่" } }
         ]
@@ -228,10 +209,10 @@ function sendFlexCreateMenu(event) {
       body: {
         type: "box", layout: "vertical", spacing: "sm",
         contents: [
-          { type: "text", text: "CREATE & MATCHING", weight: "bold", margin: "md" },
-          { type: "button", style: "link", height: "sm", action: { type: "message", label: "สร้างOwner", text: "U[ID] [ชื่อ]" } },
-          { type: "button", style: "link", height: "sm", action: { type: "message", label: "สร้างสาขา", text: "Branch [ชื่อ]" } },
-          { type: "button", style: "primary", color: "#464a4d", margin: "md", action: { type: "message", label: "🔗 เริ่มการจับคู่", text: "เริ่มการจับคู่" } }
+          { type: "text", text: "CREATE & MATCHING", weight: "bold" },
+          { type: "button", style: "link", action: { type: "message", label: "สร้างOwner: U[ID] [ชื่อ]", text: "พิมพ์ U[ID] [ชื่อ]" } },
+          { type: "button", style: "link", action: { type: "message", label: "สร้างสาขา: Branch [ชื่อ]", text: "พิมพ์ Branch [ชื่อ]" } },
+          { type: "button", style: "primary", color: "#464a4d", action: { type: "message", label: "🔗 เริ่มการจับคู่", text: "เริ่มการจับคู่" } }
         ]
       }
     }
@@ -239,4 +220,4 @@ function sendFlexCreateMenu(event) {
 }
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Thai Admin System v3 (Alphabet Filter) running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Thai Admin System v4.1 running on port ${PORT}`));
