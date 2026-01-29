@@ -21,8 +21,6 @@ app.post('/webhook', line.middleware(config), (req, res) => {
     });
 });
 
-// ... (ส่วนหัวข้อและการตั้งค่าเหมือนเดิม) ...
-
 async function handleEvent(event) {
   if (event.type !== 'message' || event.message.type !== 'text') return null;
 
@@ -36,9 +34,7 @@ async function handleEvent(event) {
   // ---------------------------------------------------------
   // ส่วนที่ 1: เมนูหลัก & เมนูสร้าง (Create)
   // ---------------------------------------------------------
-  if (userText.toLowerCase() === 'admin') {
-    return sendMainMenu(event);
-  }
+  if (userText.toLowerCase() === 'admin') return sendMainMenu(event);
 
   if (userText === 'เมนู Create') {
     return client.replyMessage(event.replyToken, {
@@ -46,32 +42,27 @@ async function handleEvent(event) {
       text: '🏠 เลือกสิ่งที่ต้องการทำ:',
       quickReply: {
         items: [
-          { type: 'action', action: { type: 'message', label: 'สร้างสาขา', text: 'สร้างสาขา' } },
-          { type: 'action', action: { type: 'message', label: 'เพิ่มแอดมิน', text: 'เพิ่มแอดมิน' } },
+          { type: 'action', action: { type: 'message', label: 'สร้างสาขา', text: 'คำแนะนำสร้างสาขา' } },
+          { type: 'action', action: { type: 'message', label: 'เพิ่มแอดมิน', text: 'คำแนะนำเพิ่มแอดมิน' } },
           { type: 'action', action: { type: 'message', label: '🔗 จับคู่ (Pairing)', text: 'เริ่มการจับคู่' } }
         ]
       }
     });
   }
 
-  // ---------------------------------------------------------
-  // ส่วนที่ 2: ขั้นตอนการจับคู่ (Pairing Flow)
-  // ---------------------------------------------------------
+  if (userText === 'คำแนะนำสร้างสาขา') return client.replyMessage(event.replyToken, { type: 'text', text: '🏠 พิมพ์ "Branch [ชื่อสาขา]"\nเช่น: Branch rabbit81' });
+  if (userText === 'คำแนะนำเพิ่มแอดมิน') return client.replyMessage(event.replyToken, { type: 'text', text: '👥 พิมพ์ "U[LineID] [ชื่อเรียก]"\nเช่น: U123456... สมชาย' });
 
-  // ขั้นตอนที่ 1: เลือก Admin (แสดง List รายชื่อแอดมิน)
-  if (userText === 'เริ่มการจับคู่') {
-    return showAdminSelector(event);
-  }
+  // ---------------------------------------------------------
+  // ส่วนที่ 2: ขั้นตอนการจับคู่ (Pairing Flow แบบ Flex)
+  // ---------------------------------------------------------
+  if (userText === 'เริ่มการจับคู่') return showAdminSelector(event);
 
-  // ขั้นตอนที่ 2: รับค่า Admin ที่เลือก แล้วแสดง List รายชื่อสาขา
-  // ตัวอย่างข้อความที่ได้รับ: "เลือกแอดมิน ID:U12345..."
   if (userText.startsWith('เลือกแอดมิน ID:')) {
     const adminId = userText.split('ID:')[1];
     return showBranchSelector(event, adminId);
   }
 
-  // ขั้นตอนที่ 3: รับค่าคู่ที่เลือก แล้วบันทึกลง Database
-  // ตัวอย่างข้อความที่ได้รับ: "ยืนยันจับคู่ A:U123... B:5"
   if (userText.startsWith('ยืนยันจับคู่ ')) {
     const params = userText.replace('ยืนยันจับคู่ ', '').split(' ');
     const adminId = params[0].split(':')[1];
@@ -80,129 +71,126 @@ async function handleEvent(event) {
   }
 
   // ---------------------------------------------------------
-  // ส่วนที่ 3: ระบบ Manage & อื่นๆ
+  // ส่วนที่ 3: ระบบจัดการ (Manage) & สรุปยอด
   // ---------------------------------------------------------
-  if (userText === 'เมนู Manage') {
-    return sendManageMenu(event);
-  }
-  
+  if (userText === 'เมนู Manage') return sendManageMenu(event);
   if (userText === 'Manage Branches') return handleListBranches(event);
   if (userText === 'Manage Admins') return handleListAdmins(event);
+  if (userText === 'สรุปยอดเมื่อวาน') return handleDailySummary(event);
 
-  // การสร้างแบบพิมพ์เอง (Fallback)
+  // ---------------------------------------------------------
+  // ส่วนที่ 4: Logic การสร้างข้อมูล (Create Logic)
+  // ---------------------------------------------------------
   if (userText.startsWith('Branch ')) return handleCreateBranch(event, userText.replace('Branch ', '').trim());
+  if (userText.startsWith('U') && userText.includes(' ')) {
+    const [targetId, displayName] = userText.split(' ');
+    if (targetId.length >= 10) return handleAddAdmin(event, targetId, displayName);
+  }
 }
 
 // ---------------------------------------------------------
-// ส่วนที่ 4: ฟังก์ชันสร้าง Flex Message (UI Functions)
+// UI FUNCTIONS (Flex & Menus)
 // ---------------------------------------------------------
 
-// ฟังก์ชัน: สร้าง List แอดมินให้จิ้ม
-async function showAdminSelector(event) {
-  const { data: admins } = await supabase.from('system_admins').select('*');
-  if (!admins.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มี Admin ในระบบค่ะ' });
-
-  const bubbles = admins.map(admin => ({
-    type: "bubble",
-    size: "micro",
-    body: {
-      type: "box",
-      layout: "vertical",
-      contents: [
-        { type: "text", text: admin.display_name, weight: "bold", size: "sm", wrap: true },
-        { type: "button", style: "primary", color: "#00b900", height: "sm",
-          action: { type: "message", label: "เลือกคนนี้", text: `เลือกแอดมิน ID:${admin.line_user_id}` }
-        }
-      ]
-    }
-  }));
-
-  return client.replyMessage(event.replyToken, {
-    type: "flex",
-    altText: "เลือกแอดมิน",
-    contents: { type: "carousel", contents: bubbles }
-  });
-}
-
-// ฟังก์ชัน: สร้าง List สาขาให้จิ้ม (หลังจากเลือกแอดมินแล้ว)
-async function showBranchSelector(event, adminId) {
-  const { data: branches } = await supabase.from('branches').select('*');
-  
-  const bubbles = branches.map(branch => ({
-    type: "bubble",
-    size: "micro",
-    body: {
-      type: "box",
-      layout: "vertical",
-      contents: [
-        { type: "text", text: branch.branch_name, weight: "bold", size: "sm" },
-        { type: "button", style: "secondary", height: "sm",
-          action: { type: "message", label: "เลือกสาขานี้", text: `ยืนยันจับคู่ A:${adminId} B:${branch.id}` }
-        }
-      ]
-    }
-  }));
-
-  return client.replyMessage(event.replyToken, {
-    type: "flex",
-    altText: "เลือกสาขา",
-    contents: { type: "carousel", contents: bubbles }
-  });
-}
-
-// ฟังก์ชัน: บันทึกการจับคู่ลงตาราง branch_owners
-async function handleFinalPairing(event, adminId, branchId) {
-  const { error } = await supabase.from('branch_owners').insert([{ branch_id: branchId, admin_id: adminId }]);
-
+function sendMainMenu(event) {
   return client.replyMessage(event.replyToken, {
     type: 'text',
-    text: error ? `❌ ผิดพลาด: ${error.message}` : `✅ จับคู่สำเร็จแล้วค่ะ!\nแอดมินพร้อมดูแลสาขานี้แล้ว`
+    text: 'สวัสดีค่ะ Super Admin! เลือกหมวดหมู่ที่ต้องการจัดการ:',
+    quickReply: {
+      items: [
+        { type: 'action', action: { type: 'message', label: '➕ สร้าง (Create)', text: 'เมนู Create' } },
+        { type: 'action', action: { type: 'message', label: '⚙️ จัดการ (Manage)', text: 'เมนู Manage' } },
+        { type: 'action', action: { type: 'message', label: '👑 Super Admin', text: 'เมนู Super Admin' } }
+      ]
+    }
   });
 }
 
-// --- ฟังก์ชันแยกกันอยู่ข้างนอก ไม่ซ้อนกันแล้วค่ะ ---
+function sendManageMenu(event) {
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: '⚙️ เลือกสิ่งที่ต้องการจัดการ:',
+    quickReply: {
+      items: [
+        { type: 'action', action: { type: 'message', label: 'จัดการสาขา', text: 'Manage Branches' } },
+        { type: 'action', action: { type: 'message', label: 'จัดการแอดมิน', text: 'Manage Admins' } },
+        { type: 'action', action: { type: 'message', label: '📊 ยอดเมื่อวาน', text: 'สรุปยอดเมื่อวาน' } }
+      ]
+    }
+  });
+}
+
+async function showAdminSelector(event) {
+  const { data: admins } = await supabase.from('system_admins').select('*');
+  if (!admins || !admins.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มี Admin ในระบบค่ะ' });
+
+  const bubbles = admins.map(admin => ({
+    type: "bubble", size: "micro",
+    body: {
+      type: "box", layout: "vertical", contents: [
+        { type: "text", text: admin.display_name, weight: "bold", size: "sm", wrap: true },
+        { type: "button", style: "primary", color: "#00b900", height: "sm", action: { type: "message", label: "เลือกคนนี้", text: `เลือกแอดมิน ID:${admin.line_user_id}` } }
+      ]
+    }
+  }));
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกแอดมิน", contents: { type: "carousel", contents: bubbles } });
+}
+
+async function showBranchSelector(event, adminId) {
+  const { data: branches } = await supabase.from('branches').select('*');
+  const bubbles = branches.map(branch => ({
+    type: "bubble", size: "micro",
+    body: {
+      type: "box", layout: "vertical", contents: [
+        { type: "text", text: branch.branch_name, weight: "bold", size: "sm" },
+        { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "เลือกสาขา", text: `ยืนยันจับคู่ A:${adminId} B:${branch.id}` } }
+      ]
+    }
+  }));
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: { type: "carousel", contents: bubbles } });
+}
+
+// ---------------------------------------------------------
+// DATABASE FUNCTIONS (Logic)
+// ---------------------------------------------------------
+
+async function handleDailySummary(event) {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const dateStr = yesterday.toISOString().split('T')[0];
+  const { data: sales } = await supabase.from('machine_hourly_sales').select('*').gte('sale_time', `${dateStr}T00:00:00Z`).lte('sale_time', `${dateStr}T23:59:59Z`);
+
+  if (!sales || sales.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: `📭 ไม่มียอดขายของวันที่ ${dateStr}` });
+
+  let total = sales.reduce((sum, s) => sum + s.amount, 0);
+  return client.replyMessage(event.replyToken, { type: 'text', text: `📊 สรุปยอดเมื่อวาน (${dateStr})\nยอดรวมทั้งหมด: ${total} บาท` });
+}
 
 async function handleCreateBranch(event, branchName) {
-  try {
-    const { error } = await supabase
-      .from('branches')
-      .insert([{ branch_name: branchName }]);
-
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: error ? `❌ สร้างไม่สำเร็จ: ${error.message}` : `✅ สร้างสาขา "${branchName}" เรียบร้อยแล้วค่ะ!`
-    });
-  } catch (err) {
-    console.error(err);
-  }
+  const { error } = await supabase.from('branches').insert([{ branch_name: branchName }]);
+  return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ สร้างสาขา "${branchName}" สำเร็จ!` });
 }
 
 async function handleAddAdmin(event, targetId, displayName) {
-  try {
-    const { data: existing } = await supabase
-      .from('system_admins')
-      .select('display_name')
-      .eq('line_user_id', targetId)
-      .single();
+  const { error } = await supabase.from('system_admins').insert([{ line_user_id: targetId, display_name: displayName }]);
+  return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ เพิ่ม Admin "${displayName}" สำเร็จ!` });
+}
 
-    if (existing) {
-      return client.replyMessage(event.replyToken, {
-        type: 'text',
-        text: `❌ มี ID นี้ในระบบแล้วในชื่อ "${existing.display_name}"`
-      });
-    }
+async function handleFinalPairing(event, adminId, branchId) {
+  const { error } = await supabase.from('branch_owners').insert([{ branch_id: branchId, admin_id: adminId }]);
+  return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ ผิดพลาด: ${error.message}` : `✅ จับคู่สำเร็จแล้วค่ะ!` });
+}
 
-    const { error } = await supabase
-      .from('system_admins')
-      .insert([{ line_user_id: targetId, display_name: displayName }]);
+async function handleListBranches(event) {
+  const { data: branches } = await supabase.from('branches').select('*');
+  let msg = '🏠 รายชื่อสาขา:\n' + branches.map(b => `ID: ${b.id} - ${b.branch_name}`).join('\n');
+  return client.replyMessage(event.replyToken, { type: 'text', text: msg });
+}
 
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: error ? '❌ เกิดข้อผิดพลาดในการบันทึก' : `✅ เพิ่ม Admin: ${displayName} เรียบร้อยแล้วค่ะ`
-    });
-  } catch (err) {
-    console.error(err);
-  }
+async function handleListAdmins(event) {
+  const { data: admins } = await supabase.from('system_admins').select('*');
+  let msg = '👥 รายชื่อ Admin:\n' + admins.map(a => `${a.display_name} (${a.line_user_id.substring(0,8)}...)`).join('\n');
+  return client.replyMessage(event.replyToken, { type: 'text', text: msg });
 }
 
 const PORT = process.env.PORT || 8080;
