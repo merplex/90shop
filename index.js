@@ -96,29 +96,29 @@ async function handleEvent(event) {
 
 // --- Functions ---
 
+// 1. ฟังก์ชันแสดงเมนู (จะเห็นปุ่ม A-M และ N-Z แน่นอนถ้ามีชื่อ A B C...)
 async function sendAlphabetMenu(event) {
   const { data: owners } = await supabase.from('branch_owners').select('owner_name');
+  
   const groups = [
-    { label: "ก-จ", range: ["ก","ข","ค","ฆ","ง","จ"] },
-    { label: "ฉ-ต", range: ["ฉ","ช","ซ","ฌ","ญ","ฎ","ฏ","ฐ","ฑ","ฒ","ณ","ด","ต"] },
-    { label: "ถ-ม", range: ["ถ","ท","ธ","น","บ","ป","ผ","ฝ","พ","ฟ","ภ","ม"] },
-    { label: "ย-ฮ", range: ["ย","ร","ล","ว","ศ","ษ","ส","ห","ฬ","อ","ฮ"] },
     { label: "A-M", range: "ABCDEFGHIJKLM".split("") },
-    { label: "N-Z", range: "NOPQRSTUVWXYZ".split("") }
+    { label: "N-Z", range: "NOPQRSTUVWXYZ".split("") },
+    { label: "ก-จ", range: ["ก","ข","ค","ฆ","ง","จ","ฉ","ช","ท","ญ","ณ","ด","ต","ถ","ธ","ท"] },
+    { label: "ย-ฮ", range: ["น","บ","ป","ผ","ฝ","พ","ฟ","ม","ย","ร","ล","ว","ศ","ส","ห","อ"] }
   ];
 
-  // กรองเฉพาะกลุ่มที่มี Owner จริงๆ
+  // ระบบจะกรองปุ่ม: ถ้าเรมีชื่อ A B C กลุ่ม A-M ต้องขึ้น / มี X Y Z กลุ่ม N-Z ต้องขึ้น
   const activeGroups = groups.filter(group => 
-    owners.some(o => group.range.includes(o.owner_name.trim().charAt(0).toUpperCase()))
+    owners?.some(o => group.range.includes(o.owner_name.trim().charAt(0).toUpperCase()))
   );
 
-  if (activeGroups.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีรายชื่อ Owner ในระบบค่ะ' });
+  if (activeGroups.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบรายชื่อ Owner ในระบบค่ะ' });
 
   return client.replyMessage(event.replyToken, {
-    type: "flex", altText: "เลือกกลุ่มชื่อ Owner",
+    type: "flex", altText: "เลือกกลุ่ม Owner",
     contents: {
       type: "bubble",
-      header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "เลือกกลุ่มชื่อเจ้าของ", weight: "bold", color: "#1DB446" }] },
+      header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "เลือกกลุ่มเจ้าของ (A-Z)", weight: "bold", color: "#1DB446" }] },
       body: {
         type: "box", layout: "vertical", spacing: "sm",
         contents: activeGroups.map(g => ({
@@ -129,6 +129,7 @@ async function sendAlphabetMenu(event) {
     }
   });
 }
+
 
 async function showOwnerSelector(event, rangeLabel) {
   const { data: owners } = await supabase.from('branch_owners').select('*').order('owner_name', { ascending: true });
