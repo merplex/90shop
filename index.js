@@ -32,9 +32,11 @@ async function handleEvent(event) {
   if (!superAdmin) return null;
 
   // ---------------------------------------------------------
-  // ส่วนที่ 1: เมนูหลัก & เมนูสร้าง (Create)
+  // ส่วนที่ 1: เมนูหลัก & เมนูสร้าง (Create Menu)
   // ---------------------------------------------------------
-  if (userText.toLowerCase() === 'admin') return sendMainMenu(event);
+  if (userText.toLowerCase() === 'admin') {
+    return sendMainMenu(event);
+  }
 
   if (userText === 'เมนู Create') {
     return client.replyMessage(event.replyToken, {
@@ -42,156 +44,124 @@ async function handleEvent(event) {
       text: '🏠 เลือกสิ่งที่ต้องการทำ:',
       quickReply: {
         items: [
-          { type: 'action', action: { type: 'message', label: 'สร้างสาขา', text: 'คำแนะนำสร้างสาขา' } },
-          { type: 'action', action: { type: 'message', label: 'เพิ่มแอดมิน', text: 'คำแนะนำเพิ่มแอดมิน' } },
+          { type: 'action', action: { type: 'message', label: 'สร้างสาขา', text: 'สร้างสาขา' } },
+          { type: 'action', action: { type: 'message', label: 'เพิ่ม Owner', text: 'เพิ่ม Owner' } },
           { type: 'action', action: { type: 'message', label: '🔗 จับคู่ (Pairing)', text: 'เริ่มการจับคู่' } }
         ]
       }
     });
   }
 
-  if (userText === 'คำแนะนำสร้างสาขา') return client.replyMessage(event.replyToken, { type: 'text', text: '🏠 พิมพ์ "Branch [ชื่อสาขา]"\nเช่น: Branch rabbit81' });
-  if (userText === 'คำแนะนำเพิ่มแอดมิน') return client.replyMessage(event.replyToken, { type: 'text', text: '👥 พิมพ์ "U[LineID] [ชื่อเรียก]"\nเช่น: U123456... สมชาย' });
-
   // ---------------------------------------------------------
-  // ส่วนที่ 2: ขั้นตอนการจับคู่ (Pairing Flow แบบ Flex)
+  // ส่วนที่ 2: ขั้นตอนการจับคู่ (Pairing Flow) ปรับปรุงใหม่
   // ---------------------------------------------------------
-  if (userText === 'เริ่มการจับคู่') return showAdminSelector(event);
 
-  if (userText.startsWith('เลือกแอดมิน ID:')) {
-    const adminId = userText.split('ID:')[1];
-    return showBranchSelector(event, adminId);
+  // ขั้นตอนที่ 1: เลือก Owner (จิ้มจาก List)
+  if (userText === 'เริ่มการจับคู่') {
+    return showOwnerSelector(event);
   }
 
+  // ขั้นตอนที่ 2: รับค่า Owner แล้วเลือกสาขา
+  if (userText.startsWith('เลือก Owner ID:')) {
+    const ownerId = userText.split('ID:')[1];
+    return showBranchSelector(event, ownerId);
+  }
+
+  // ขั้นตอนที่ 3: ยืนยันการจับคู่ (บันทึกลง owner_line_id)
   if (userText.startsWith('ยืนยันจับคู่ ')) {
     const params = userText.replace('ยืนยันจับคู่ ', '').split(' ');
-    const adminId = params[0].split(':')[1];
+    const ownerId = params[0].split(':')[1];
     const branchId = params[1].split(':')[1];
-    return handleFinalPairing(event, adminId, branchId);
+    return handleFinalPairing(event, ownerId, branchId);
   }
 
   // ---------------------------------------------------------
-  // ส่วนที่ 3: ระบบจัดการ (Manage) & สรุปยอด
+  // ส่วนที่ 3: ระบบจัดการและสรุปยอด
   // ---------------------------------------------------------
-  if (userText === 'เมนู Manage') return sendManageMenu(event);
-  if (userText === 'Manage Branches') return handleListBranches(event);
-  if (userText === 'Manage Admins') return handleListAdmins(event);
-  if (userText === 'สรุปยอดเมื่อวาน') return handleDailySummary(event);
+  if (userText === 'เมนู Manage') {
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: '⚙️ เลือกสิ่งที่ต้องการจัดการ:',
+      quickReply: {
+        items: [
+          { type: 'action', action: { type: 'message', label: 'จัดการสาขา', text: 'Manage Branches' } },
+          { type: 'action', action: { type: 'message', label: 'จัดการ Owner', text: 'Manage Owners' } },
+          { type: 'action', action: { type: 'message', label: '📊 ยอดเมื่อวาน', text: 'สรุปยอดเมื่อวาน' } }
+        ]
+      }
+    });
+  }
 
-  // ---------------------------------------------------------
-  // ส่วนที่ 4: Logic การสร้างข้อมูล (Create Logic)
-  // ---------------------------------------------------------
+  // คำสั่งสรุปยอดเมื่อวาน
+  if (userText === 'สรุปยอดเมื่อวาน') return handleDailySummary(event);
+  
+  // คำสั่งสร้างสาขา (Branch [ชื่อ])
   if (userText.startsWith('Branch ')) return handleCreateBranch(event, userText.replace('Branch ', '').trim());
+
+  // คำสั่งเพิ่ม Owner (U[ID] [ชื่อ])
   if (userText.startsWith('U') && userText.includes(' ')) {
     const [targetId, displayName] = userText.split(' ');
-    if (targetId.length >= 10) return handleAddAdmin(event, targetId, displayName);
+    if (targetId.length >= 10) return handleAddOwner(event, targetId, displayName);
   }
 }
 
 // ---------------------------------------------------------
-// UI FUNCTIONS (Flex & Menus)
+// ฟังก์ชัน UI & Database
 // ---------------------------------------------------------
 
-function sendMainMenu(event) {
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: 'สวัสดีค่ะ Super Admin! เลือกหมวดหมู่ที่ต้องการจัดการ:',
-    quickReply: {
-      items: [
-        { type: 'action', action: { type: 'message', label: '➕ สร้าง (Create)', text: 'เมนู Create' } },
-        { type: 'action', action: { type: 'message', label: '⚙️ จัดการ (Manage)', text: 'เมนู Manage' } },
-        { type: 'action', action: { type: 'message', label: '👑 Super Admin', text: 'เมนู Super Admin' } }
-      ]
-    }
-  });
-}
+async function showOwnerSelector(event) {
+  const { data: owners } = await supabase.from('system_admins').select('*');
+  if (!owners?.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มี Owner ในระบบค่ะ' });
 
-function sendManageMenu(event) {
-  return client.replyMessage(event.replyToken, {
-    type: 'text',
-    text: '⚙️ เลือกสิ่งที่ต้องการจัดการ:',
-    quickReply: {
-      items: [
-        { type: 'action', action: { type: 'message', label: 'จัดการสาขา', text: 'Manage Branches' } },
-        { type: 'action', action: { type: 'message', label: 'จัดการแอดมิน', text: 'Manage Admins' } },
-        { type: 'action', action: { type: 'message', label: '📊 ยอดเมื่อวาน', text: 'สรุปยอดเมื่อวาน' } }
-      ]
-    }
-  });
-}
-
-async function showAdminSelector(event) {
-  const { data: admins } = await supabase.from('system_admins').select('*');
-  if (!admins || !admins.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มี Admin ในระบบค่ะ' });
-
-  const bubbles = admins.map(admin => ({
+  const bubbles = owners.map(o => ({
     type: "bubble", size: "micro",
     body: {
       type: "box", layout: "vertical", contents: [
-        { type: "text", text: admin.display_name, weight: "bold", size: "sm", wrap: true },
-        { type: "button", style: "primary", color: "#00b900", height: "sm", action: { type: "message", label: "เลือกคนนี้", text: `เลือกแอดมิน ID:${admin.line_user_id}` } }
+        { type: "text", text: o.display_name, weight: "bold", size: "sm", wrap: true },
+        { type: "button", style: "primary", color: "#00b900", height: "sm",
+          action: { type: "message", label: "เลือกคนนี้", text: `เลือก Owner ID:${o.line_user_id}` }
+        }
       ]
     }
   }));
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกแอดมิน", contents: { type: "carousel", contents: bubbles } });
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือก Owner", contents: { type: "carousel", contents: bubbles } });
 }
 
-async function showBranchSelector(event, adminId) {
+async function showBranchSelector(event, ownerId) {
   const { data: branches } = await supabase.from('branches').select('*');
-  const bubbles = branches.map(branch => ({
+  const bubbles = branches.map(b => ({
     type: "bubble", size: "micro",
     body: {
       type: "box", layout: "vertical", contents: [
-        { type: "text", text: branch.branch_name, weight: "bold", size: "sm" },
-        { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "เลือกสาขา", text: `ยืนยันจับคู่ A:${adminId} B:${branch.id}` } }
+        { type: "text", text: b.branch_name, weight: "bold", size: "sm" },
+        { type: "button", style: "secondary", height: "sm",
+          action: { type: "message", label: "เลือกสาขานี้", text: `ยืนยันจับคู่ O:${ownerId} B:${b.id}` }
+        }
       ]
     }
   }));
   return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: { type: "carousel", contents: bubbles } });
 }
 
-// ---------------------------------------------------------
-// DATABASE FUNCTIONS (Logic)
-// ---------------------------------------------------------
-
-async function handleDailySummary(event) {
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const dateStr = yesterday.toISOString().split('T')[0];
-  const { data: sales } = await supabase.from('machine_hourly_sales').select('*').gte('sale_time', `${dateStr}T00:00:00Z`).lte('sale_time', `${dateStr}T23:59:59Z`);
-
-  if (!sales || sales.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: `📭 ไม่มียอดขายของวันที่ ${dateStr}` });
-
-  let total = sales.reduce((sum, s) => sum + s.amount, 0);
-  return client.replyMessage(event.replyToken, { type: 'text', text: `📊 สรุปยอดเมื่อวาน (${dateStr})\nยอดรวมทั้งหมด: ${total} บาท` });
+async function handleFinalPairing(event, ownerId, branchId) {
+  // บันทึกลงฟิลด์ owner_line_id ตามที่เปรมต้องการ
+  const { error } = await supabase.from('branch_owners').insert([{ branch_id: branchId, owner_line_id: ownerId }]);
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: error ? `❌ ผิดพลาด: ${error.message}` : `✅ จับคู่ Owner กับสาขาเรียบร้อยแล้วค่ะ!`
+  });
 }
 
-async function handleCreateBranch(event, branchName) {
-  const { error } = await supabase.from('branches').insert([{ branch_name: branchName }]);
-  return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ สร้างสาขา "${branchName}" สำเร็จ!` });
-}
-
-async function handleAddAdmin(event, targetId, displayName) {
+// ฟังก์ชันเพิ่ม Owner (บันทึกลง system_admins)
+async function handleAddOwner(event, targetId, displayName) {
   const { error } = await supabase.from('system_admins').insert([{ line_user_id: targetId, display_name: displayName }]);
-  return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ เพิ่ม Admin "${displayName}" สำเร็จ!` });
+  return client.replyMessage(event.replyToken, {
+    type: 'text',
+    text: error ? `❌ Error: ${error.message}` : `✅ เพิ่ม Owner: ${displayName} เรียบร้อย!`
+  });
 }
 
-async function handleFinalPairing(event, adminId, branchId) {
-  const { error } = await supabase.from('branch_owners').insert([{ branch_id: branchId, admin_id: adminId }]);
-  return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ ผิดพลาด: ${error.message}` : `✅ จับคู่สำเร็จแล้วค่ะ!` });
-}
-
-async function handleListBranches(event) {
-  const { data: branches } = await supabase.from('branches').select('*');
-  let msg = '🏠 รายชื่อสาขา:\n' + branches.map(b => `ID: ${b.id} - ${b.branch_name}`).join('\n');
-  return client.replyMessage(event.replyToken, { type: 'text', text: msg });
-}
-
-async function handleListAdmins(event) {
-  const { data: admins } = await supabase.from('system_admins').select('*');
-  let msg = '👥 รายชื่อ Admin:\n' + admins.map(a => `${a.display_name} (${a.line_user_id.substring(0,8)}...)`).join('\n');
-  return client.replyMessage(event.replyToken, { type: 'text', text: msg });
-}
+// (ฟังก์ชันอื่นๆ เช่น sendMainMenu, handleCreateBranch, handleDailySummary ใส่ต่อท้ายได้เลยค่ะ)
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Admin Server is running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
