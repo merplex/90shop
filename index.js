@@ -46,22 +46,28 @@ async function handleEvent(event) {
   if (userText === 'จัดการการจับคู่') return showManageMatching(event);
 
   // --- ระบบ Create ---
+    // --- ระบบ Create (แบบไม่ตัดตัว U ออก) ---
   if (userText.startsWith('U') && userText.includes(' ')) {
     const parts = userText.split(' ');
-    const targetId = parts[0].substring(1);
+    const targetId = parts[0].trim(); // รับค่าเต็มๆ เช่น U4e5afaf... ไม่ต้องตัดตัวแรกทิ้ง
     const name = parts.slice(1).join(' ');
     
+    // เช็คความยาวให้ครอบคลุม (ปกติ LINE ID จะยาว 33 ตัวอักษร)
     if (targetId.length >= 10) {
       const { error } = await supabase.from('branch_owners').upsert([
-        { owner_line_id: targetId, owner_name: name }
+        { 
+          owner_line_id: targetId, 
+          owner_name: name 
+        }
       ], { onConflict: 'owner_line_id' });
 
       return client.replyMessage(event.replyToken, { 
         type: 'text', 
-        text: error ? `❌ Error: ${error.message}` : `✅ บันทึก Owner: ${name} เรียบร้อยค่ะ` 
+        text: error ? `❌ Error: ${error.message}` : `✅ บันทึก Owner: ${name} (ID: ${targetId}) เรียบร้อยค่ะ` 
       });
     }
   }
+
 
   if (userText.startsWith('Branch ')) {
     const branchName = userText.replace('Branch ', '').trim();
@@ -186,24 +192,53 @@ async function showBranchSelector(event, ownerId, ownerName) {
 async function showManageMatching(event) {
   const { data: matched, error } = await supabase
     .from('branch_owners')
-    .select('owner_line_id, owner_name, branch_id, branches(branch_name)')
+    .select('owner_line_id, owner_name, branches(branch_name)')
     .not('branch_id', 'is', null);
 
   if (error || !matched?.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีข้อมูลการจับคู่ค่ะ' });
 
-  const bubbles = matched.map(item => ({
-    type: "bubble", size: "micro",
-    body: {
-      type: "box", layout: "vertical", spacing: "xs",
-      contents: [
-        { type: "text", text: `👤 ${item.owner_name}`, weight: "bold", size: "xs" },
-        { type: "text", text: `📍 ${item.branches?.branch_name || 'N/A'}`, size: "xs", color: "#666666" },
-        { type: "button", style: "primary", color: "#FF4B4B", height: "sm", margin: "xs", action: { type: "message", label: "🗑️ ลบ", text: `ยกเลิกการจับคู่ ID:${item.owner_line_id}` } }
+  // แบ่งข้อมูลเป็นชุดละ 10 รายการต่อ 1 Bubble
+  const chunkSize = 10;
+  const chunks = [];
+  for (let i = 0; i < matched.length; i += chunkSize) {
+    chunks.push(matched.slice(i, i + chunkSize));
+  }
+
+  const bubbles = chunks.map((chunk, index) => ({
+    type: "bubble",
+    header: {
+      type: "box", layout: "vertical", contents: [
+        { type: "text", text: `รายการที่ ${index * chunkSize + 1} - ${index * chunkSize + chunk.length}`, size: "sm", color: "#aaaaaa" }
       ]
+    },
+    body: {
+      type: "box", layout: "vertical", spacing: "md",
+      contents: chunk.map(item => ({
+        type: "box", layout: "horizontal", verticalAlign: "center",
+        contents: [
+          {
+            type: "box", layout: "vertical", flex: 4,
+            contents: [
+              { type: "text", text: item.owner_name, weight: "bold", size: "sm", wrap: true },
+              { type: "text", text: `📍 ${item.branches?.branch_name || 'N/A'}`, size: "xs", color: "#666666", wrap: true }
+            ]
+          },
+          {
+            type: "button", style: "secondary", color: "#FF4B4B", height: "sm", flex: 1,
+            action: { type: "message", label: "ลบ", text: `ยกเลิกการจับคู่ ID:${item.owner_line_id}` }
+          }
+        ]
+      }))
     }
   }));
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "จัดการการจับคู่", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
+
+  return client.replyMessage(event.replyToken, {
+    type: "flex",
+    altText: "จัดการการจับคู่",
+    contents: { type: "carousel", contents: bubbles.slice(0, 12) } // สูงสุด 120 รายการ (12 bubbles * 10)
+  });
 }
+
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => console.log(`Thai Admin System running on port ${PORT}`));
