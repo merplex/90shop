@@ -215,18 +215,36 @@ function showBranchActionMenu(event, data) {
 }
 
 // --- Helper Functions ---
+// --- แก้ไขจุดบันทึกชื่อเพี้ยน ---
+
 async function handleCreateOwner(event, text) {
+  // 1. ดักจับ: ถ้าเป็นข้อความตัวอย่าง "U[ID] [ชื่อ]" ให้ข้ามไปเลย ไม่ต้องบันทึก
+  if (text.includes('[ID]') || text.includes('[ชื่อ]')) return null;
+
   const parts = text.split(' ');
   const id = parts[0].trim();
   const name = parts.slice(1).join(' ').trim();
+
+  // 2. เช็กซ้ำอีกทีเพื่อความชัวร์ว่าไม่ใช่ค่าว่าง
+  if (!id || !name) return null;
+
   await supabase.from('branch_owners').upsert([{ owner_line_id: id, owner_name: name }]);
   return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึกเจ้าของ: ${name}` });
 }
+
 async function handleCreateBranch(event, text) {
+  // 1. ดักจับ: ถ้าเป็นข้อความตัวอย่าง "Branch [ชื่อ]" ให้ข้ามไปเลย
+  if (text.includes('[ชื่อ]')) return null;
+
   const name = text.replace('Branch ', '').trim();
+
+  // 2. เช็กว่าพิมพ์ชื่อมาจริงๆ
+  if (!name) return null;
+
   await supabase.from('branches').insert([{ branch_name: name }]);
   return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึกสาขา: ${name}` });
 }
+
 function sendAlphabetMenu(event, prefix) {
   const keys = Object.keys(ALPHABET_GROUPS);
   const rows = chunkArray(keys, 3);
