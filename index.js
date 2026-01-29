@@ -6,7 +6,6 @@ const utc = require('dayjs/plugin/utc');
 const timezone = require('dayjs/plugin/timezone');
 require('dotenv').config();
 
-// ตั้งค่า DayJS ให้ใช้ Timezone ไทย
 dayjs.extend(utc);
 dayjs.extend(timezone);
 dayjs.tz.setDefault("Asia/Bangkok");
@@ -36,38 +35,30 @@ async function handleEvent(event) {
   const userText = event.message.text.trim();
   const now = dayjs().tz();
 
-  // 🛡️ เช็คสิทธิ์ Super Admin
   const { data: isSuper } = await supabase.from('super_admins').select('*').eq('line_user_id', userId).maybeSingle();
   if (!isSuper) return null;
 
-  // --- เมนูหลัก ---
+  // --- Router ---
   if (userText.toLowerCase() === 'admin') return sendFlexMainMenu(event);
   if (userText === 'เมนู Create') return sendFlexCreateMenu(event);
   if (userText === 'จัดการการจับคู่') return showManageMatching(event);
-
-  // --- ระบบ Create ---
-    // --- ระบบ Create (แบบไม่ตัดตัว U ออก) ---
-  if (userText.startsWith('U') && userText.includes(' ')) {
-    const parts = userText.split(' ');
-    const targetId = parts[0].trim(); // รับค่าเต็มๆ เช่น U4e5afaf... ไม่ต้องตัดตัวแรกทิ้ง
-    const name = parts.slice(1).join(' ');
-    
-    // เช็คความยาวให้ครอบคลุม (ปกติ LINE ID จะยาว 33 ตัวอักษร)
-    if (targetId.length >= 10) {
-      const { error } = await supabase.from('branch_owners').upsert([
-        { 
-          owner_line_id: targetId, 
-          owner_name: name 
-        }
-      ], { onConflict: 'owner_line_id' });
-
-      return client.replyMessage(event.replyToken, { 
-        type: 'text', 
-        text: error ? `❌ Error: ${error.message}` : `✅ บันทึก Owner: ${name} (ID: ${targetId}) เรียบร้อยค่ะ` 
-      });
-    }
+  if (userText === 'เริ่มการจับคู่') return sendAlphabetMenu(event);
+  
+  if (userText.startsWith('กลุ่มตัวอักษร:')) {
+    const range = userText.replace('กลุ่มตัวอักษร:', '').trim();
+    return showOwnerSelector(event, range);
   }
 
+  // --- Create Owner & Branch ---
+  if (userText.startsWith('U') && userText.includes(' ')) {
+    const parts = userText.split(' ');
+    const targetId = parts[0].trim();
+    const name = parts.slice(1).join(' ');
+    if (targetId.length >= 10) {
+      const { error } = await supabase.from('branch_owners').upsert([{ owner_line_id: targetId, owner_name: name }], { onConflict: 'owner_line_id' });
+      return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ บันทึก Owner: ${name} (ID: ${targetId}) เรียบร้อยค่ะ` });
+    }
+  }
 
   if (userText.startsWith('Branch ')) {
     const branchName = userText.replace('Branch ', '').trim();
@@ -75,23 +66,16 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ สร้างสาขา "${branchName}" สำเร็จ` });
   }
 
-  // --- ระบบ Manage & Delete (ลบการจับคู่เดิม) ---
+  // --- Delete Matching (Many-to-Many) ---
   if (userText.startsWith('ยกเลิกการจับคู่ ID:')) {
-    const targetOwnerId = userText.replace('ยกเลิกการจับคู่ ID:', '').trim();
-    const { error } = await supabase
-      .from('branch_owners')
-      .update({ branch_id: null, paired_at: null })
-      .eq('owner_line_id', targetOwnerId);
-
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: error ? `❌ Error: ${error.message}` : `✅ ลบการจับคู่แล้วค่ะ คุณสามารถเลือกจับคู่ใหม่ได้ทันที`
-    });
+    const data = userText.replace('ยกเลิกการจับคู่ ID:', '').split('|');
+    const targetOwnerId = data[0].trim();
+    const targetBranchId = data[1].trim();
+    const { error } = await supabase.from('owner_branch_mapping').delete().eq('owner_line_id', targetOwnerId).eq('branch_id', targetBranchId);
+    return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ ยกเลิกการเชื่อมต่อเรียบร้อยค่ะ` });
   }
 
-  // --- Flow การจับคู่ ---
-  if (userText === 'เริ่มการจับคู่') return showOwnerSelector(event);
-
+  // --- Matching Flow ---
   if (userText.startsWith('เลือก Owner:')) {
     const parts = userText.split('|');
     const ownerName = parts[0].replace('เลือก Owner:', '').trim();
@@ -105,22 +89,113 @@ async function handleEvent(event) {
     const branchId = params[1].split(':')[1];
     const ownerName = params[2].split(':')[1];
     const branchName = params[3]?.split(':')[1] || 'สาขา';
-    
-    const { error } = await supabase.from('branch_owners').upsert({ 
-      owner_line_id: ownerId, 
-      branch_id: branchId, 
-      owner_name: ownerName,
-      paired_at: now.format() 
-    });
-
-    return client.replyMessage(event.replyToken, {
-      type: 'text',
-      text: error ? `❌ Error: ${error.message}` : `✅ จับคู่ "${ownerName}" กับ "${branchName}" สำเร็จ!`
-    });
+    const { error } = await supabase.from('owner_branch_mapping').insert([{ owner_line_id: ownerId, branch_id: branchId }]);
+    return client.replyMessage(event.replyToken, { type: 'text', text: error ? `❌ Error: ${error.message}` : `✅ จับคู่ "${ownerName}" กับ "${branchName}" เรียบร้อย!` });
   }
 }
 
-// --- UI Flex Message ---
+// --- Functions ---
+
+async function sendAlphabetMenu(event) {
+  const { data: owners } = await supabase.from('branch_owners').select('owner_name');
+  const groups = [
+    { label: "ก-จ", range: ["ก","ข","ค","ฆ","ง","จ"] },
+    { label: "ฉ-ต", range: ["ฉ","ช","ซ","ฌ","ญ","ฎ","ฏ","ฐ","ฑ","ฒ","ณ","ด","ต"] },
+    { label: "ถ-ม", range: ["ถ","ท","ธ","น","บ","ป","ผ","ฝ","พ","ฟ","ภ","ม"] },
+    { label: "ย-ฮ", range: ["ย","ร","ล","ว","ศ","ษ","ส","ห","ฬ","อ","ฮ"] },
+    { label: "A-M", range: "ABCDEFGHIJKLM".split("") },
+    { label: "N-Z", range: "NOPQRSTUVWXYZ".split("") }
+  ];
+
+  // กรองเฉพาะกลุ่มที่มี Owner จริงๆ
+  const activeGroups = groups.filter(group => 
+    owners.some(o => group.range.includes(o.owner_name.trim().charAt(0).toUpperCase()))
+  );
+
+  if (activeGroups.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีรายชื่อ Owner ในระบบค่ะ' });
+
+  return client.replyMessage(event.replyToken, {
+    type: "flex", altText: "เลือกกลุ่มชื่อ Owner",
+    contents: {
+      type: "bubble",
+      header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "เลือกกลุ่มชื่อเจ้าของ", weight: "bold", color: "#1DB446" }] },
+      body: {
+        type: "box", layout: "vertical", spacing: "sm",
+        contents: activeGroups.map(g => ({
+          type: "button", style: "primary", color: "#1DB446", height: "sm",
+          action: { type: "message", label: g.label, text: `กลุ่มตัวอักษร: ${g.label}` }
+        }))
+      }
+    }
+  });
+}
+
+async function showOwnerSelector(event, rangeLabel) {
+  const { data: owners } = await supabase.from('branch_owners').select('*').order('owner_name', { ascending: true });
+  const groups = {
+    "ก-จ": ["ก","ข","ค","ฆ","ง","จ"],
+    "ฉ-ต": ["ฉ","ช","ซ","ฌ","ญ","ฎ","ฏ","ฐ","ฑ","ฒ","ณ","ด","ต"],
+    "ถ-ม": ["ถ","ท","ธ","น","บ","ป","ผ","ฝ","พ","ฟ","ภ","ม"],
+    "ย-ฮ": ["ย","ร","ล","ว","ศ","ษ","ส","ห","ฬ","อ","ฮ"],
+    "A-M": "ABCDEFGHIJKLM".split(""),
+    "N-Z": "NOPQRSTUVWXYZ".split("")
+  };
+
+  const filtered = owners.filter(o => groups[rangeLabel].includes(o.owner_name.trim().charAt(0).toUpperCase()));
+  
+  const chunks = [];
+  for (let i = 0; i < filtered.length; i += 10) chunks.push(filtered.slice(i, i + 10));
+
+  const bubbles = chunks.map(chunk => ({
+    type: "bubble",
+    header: { type: "box", layout: "vertical", contents: [{ type: "text", text: `รายชื่อกลุ่ม ${rangeLabel}`, size: "sm", weight: "bold" }] },
+    body: {
+      type: "box", layout: "vertical", spacing: "md",
+      contents: chunk.map(o => ({
+        type: "box", layout: "horizontal", verticalAlign: "center",
+        contents: [
+          { type: "text", text: o.owner_name, weight: "bold", size: "sm", flex: 3, wrap: true },
+          { type: "button", style: "primary", color: "#00b900", height: "sm", flex: 2, action: { type: "message", label: "เลือก", text: `เลือก Owner: ${o.owner_name} | ${o.owner_line_id}` } }
+        ]
+      }))
+    }
+  }));
+
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือก Owner", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
+}
+
+async function showBranchSelector(event, ownerId, ownerName) {
+  const { data: branches } = await supabase.from('branches').select('*');
+  const bubbles = branches.map(b => ({
+    type: "bubble", size: "micro",
+    body: {
+      type: "box", layout: "vertical", spacing: "xs",
+      contents: [
+        { type: "text", text: b.branch_name, weight: "bold", size: "sm", align: "center", wrap: true },
+        { type: "button", style: "secondary", color: "#464a4d", height: "sm", action: { type: "message", label: "เลือก", text: `ยืนยันจับคู่ O:${ownerId} B:${b.id} N:${ownerName} BN:${b.branch_name}` } }
+      ]
+    }
+  }));
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
+}
+
+async function showManageMatching(event) {
+  const { data: mappings, error } = await supabase.from('owner_branch_mapping').select('owner_line_id, branch_id, branch_owners(owner_name), branches(branch_name)');
+  if (error || !mappings?.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีข้อมูลการจับคู่ค่ะ' });
+
+  const bubbles = mappings.map(item => ({
+    type: "bubble", size: "micro",
+    body: {
+      type: "box", layout: "vertical", spacing: "xs",
+      contents: [
+        { type: "text", text: `👤 ${item.branch_owners?.owner_name || 'N/A'}`, weight: "bold", size: "xs", wrap: true },
+        { type: "text", text: `📍 ${item.branches?.branch_name || 'N/A'}`, size: "xs", color: "#666666", wrap: true },
+        { type: "button", style: "primary", color: "#FF4B4B", height: "sm", margin: "xs", action: { type: "message", label: "🗑️ ลบ", text: `ยกเลิกการจับคู่ ID:${item.owner_line_id}|${item.branch_id}` } }
+      ]
+    }
+  }));
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "จัดการการจับคู่", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
+}
 
 function sendFlexMainMenu(event) {
   return client.replyMessage(event.replyToken, {
@@ -157,88 +232,5 @@ function sendFlexCreateMenu(event) {
   });
 }
 
-async function showOwnerSelector(event) {
-  const { data: owners } = await supabase.from('branch_owners').select('*');
-  if (!owners?.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีรายชื่อ Owner ค่ะ' });
-
-  const bubbles = owners.map(o => ({
-    type: "bubble", size: "micro",
-    body: {
-      type: "box", layout: "vertical", spacing: "xs",
-      contents: [
-        { type: "text", text: o.owner_name, weight: "bold", size: "sm", align: "center", wrap: true },
-        { type: "button", style: "primary", color: "#00b900", height: "sm", action: { type: "message", label: "เลือก", text: `เลือก Owner: ${o.owner_name} | ${o.owner_line_id}` } }
-      ]
-    }
-  }));
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือก Owner", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
-}
-
-async function showBranchSelector(event, ownerId, ownerName) {
-  const { data: branches } = await supabase.from('branches').select('*');
-  const bubbles = branches.map(b => ({
-    type: "bubble", size: "micro",
-    body: {
-      type: "box", layout: "vertical", spacing: "xs",
-      contents: [
-        { type: "text", text: b.branch_name, weight: "bold", size: "sm", align: "center", wrap: true },
-        { type: "button", style: "secondary", color: "#464a4d", height: "sm", action: { type: "message", label: "เลือก", text: `ยืนยันจับคู่ O:${ownerId} B:${b.id} N:${ownerName} BN:${b.branch_name}` } }
-      ]
-    }
-  }));
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: { type: "carousel", contents: bubbles.slice(0, 12) } });
-}
-
-async function showManageMatching(event) {
-  const { data: matched, error } = await supabase
-    .from('branch_owners')
-    .select('owner_line_id, owner_name, branches(branch_name)')
-    .not('branch_id', 'is', null);
-
-  if (error || !matched?.length) return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีข้อมูลการจับคู่ค่ะ' });
-
-  // แบ่งข้อมูลเป็นชุดละ 10 รายการต่อ 1 Bubble
-  const chunkSize = 10;
-  const chunks = [];
-  for (let i = 0; i < matched.length; i += chunkSize) {
-    chunks.push(matched.slice(i, i + chunkSize));
-  }
-
-  const bubbles = chunks.map((chunk, index) => ({
-    type: "bubble",
-    header: {
-      type: "box", layout: "vertical", contents: [
-        { type: "text", text: `รายการที่ ${index * chunkSize + 1} - ${index * chunkSize + chunk.length}`, size: "sm", color: "#aaaaaa" }
-      ]
-    },
-    body: {
-      type: "box", layout: "vertical", spacing: "md",
-      contents: chunk.map(item => ({
-        type: "box", layout: "horizontal", verticalAlign: "center",
-        contents: [
-          {
-            type: "box", layout: "vertical", flex: 4,
-            contents: [
-              { type: "text", text: item.owner_name, weight: "bold", size: "sm", wrap: true },
-              { type: "text", text: `📍 ${item.branches?.branch_name || 'N/A'}`, size: "xs", color: "#666666", wrap: true }
-            ]
-          },
-          {
-            type: "button", style: "secondary", color: "#FF4B4B", height: "sm", flex: 1,
-            action: { type: "message", label: "ลบ", text: `ยกเลิกการจับคู่ ID:${item.owner_line_id}` }
-          }
-        ]
-      }))
-    }
-  }));
-
-  return client.replyMessage(event.replyToken, {
-    type: "flex",
-    altText: "จัดการการจับคู่",
-    contents: { type: "carousel", contents: bubbles.slice(0, 12) } // สูงสุด 120 รายการ (12 bubbles * 10)
-  });
-}
-
-
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`Thai Admin System running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Thai Admin System v3 (Alphabet Filter) running on port ${PORT}`));
