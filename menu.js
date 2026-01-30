@@ -127,64 +127,68 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
     qr: { day: 0, week: 0, month: 0 }
   };
 
-  // ประมวลผลข้อมูล
+  // 1. ประมวลผลข้อมูล (คำนวณทั้งรายเครื่องและรายสาขาพร้อมกัน)
   logs.forEach(log => {
     const logDate = new Date(log.created_at);
     const diffDays = Math.ceil(Math.abs(now - logDate) / (1000 * 60 * 60 * 24));
     const mId = log.machine_id;
+    const type = log.type; // coin, bank, qr
 
+    // เตรียมโครงสร้างข้อมูลรายเครื่อง (ถ้ายังไม่มี)
     if (!machineData[mId]) {
-      machineData[mId] = { coin: 0, bank: 0, qr: 0, total: 0 };
+      machineData[mId] = {
+        coin: { day: 0, week: 0, month: 0 },
+        bank: { day: 0, week: 0, month: 0 },
+        qr: { day: 0, week: 0, month: 0 }
+      };
     }
-    
-    // แยกตามเครื่อง (ยอดรวมทั้งหมดของเครื่องนั้น)
-    if (log.type === 'coin') machineData[mId].coin += log.amount;
-    if (log.type === 'bank') machineData[mId].bank += log.amount;
-    if (log.type === 'qr') machineData[mId].qr += log.amount;
-    machineData[mId].total += log.amount;
 
-    // แยกสรุปรวมสาขาตามช่วงเวลา
-    if (diffDays <= 1) branchSummary[log.type].day += log.amount;
-    if (diffDays <= 7) branchSummary[log.type].week += log.amount;
-    if (diffDays <= 30) branchSummary[log.type].month += log.amount;
+    // เก็บสถิติรายเครื่อง
+    if (diffDays <= 1) machineData[mId][type].day += log.amount;
+    if (diffDays <= 7) machineData[mId][type].week += log.amount;
+    if (diffDays <= 30) machineData[mId][type].month += log.amount;
+
+    // เก็บสถิติสรุปรวมสาขา
+    if (diffDays <= 1) branchSummary[type].day += log.amount;
+    if (diffDays <= 7) branchSummary[type].week += log.amount;
+    if (diffDays <= 30) branchSummary[type].month += log.amount;
   });
 
-  // --- ส่วนการสร้างหน้าตา Flex ---
-
-  // 1. สร้างเนื้อหาในตารางรายเครื่อง
+  // 2. สร้างเนื้อหา Flex รายงานรายเครื่อง (แบบละเอียด)
   const machineRows = [];
   Object.keys(machineData).forEach((mId, index) => {
     const d = machineData[mId];
-    // เพิ่มขีดคั่นระหว่างเครื่อง (ยกเว้นเครื่องแรก)
-    if (index > 0) machineRows.push({ type: "separator", margin: "md" });
-    
+    if (index > 0) machineRows.push({ type: "separator", margin: "xl" });
+
     machineRows.push({
-      type: "box", layout: "vertical", margin: "md", spacing: "xs",
+      type: "box", layout: "vertical", margin: "md", spacing: "sm",
       contents: [
-        { type: "text", text: `📟 เครื่อง: ${mId}`, weight: "bold", size: "sm", color: "#111111" },
-        { type: "box", layout: "horizontal", contents: [{ type: "text", text: "เหรียญ/แบงค์/QR", size: "xs", color: "#888888" }, { type: "text", text: `${d.coin}/${d.bank}/${d.qr}`, align: "end", size: "xs" }] },
-        { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ยอดรวมเครื่องนี้", size: "sm", weight: "bold" }, { type: "text", text: `฿${d.total.toLocaleString()}`, align: "end", size: "sm", weight: "bold", color: "#4169E1" }] }
+        { type: "text", text: `📟 เครื่อง: ${mId}`, weight: "bold", size: "md", color: "#111111" },
+        // เรียกใช้ฟังก์ชันช่วยสร้างแถวข้อมูลย่อย (เหรียญ/แบงค์/QR) ของเครื่องนั้นๆ
+        createSummaryRow("🪙 เหรียญ", d.coin),
+        createSummaryRow("💵 ธนบัตร", d.bank),
+        createSummaryRow("📱 QR Code", d.qr)
       ]
     });
   });
 
   const flexAllMachines = {
     type: "bubble",
-    header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📋 รายเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+    header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" }] },
     body: { type: "box", layout: "vertical", contents: machineRows }
   };
 
-  // 2. สร้าง Flex สรุปยอดรวม (ใช้ฟังก์ชัน getSummaryFlex เดิมที่เรเคยให้ไว้ได้เลย)
+  // 3. สร้าง Flex สรุปภาพรวมสาขา (เหมือนเดิม)
   const flexSummary = {
     type: "bubble",
-    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `🏆 สรุปภาพรวม: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `🏆 สรุปภาพรวมสาขา: ${branchName}`, color: "#ffffff", weight: "bold" }] },
     body: {
       type: "box", layout: "vertical", spacing: "md",
       contents: [
-        { type: "text", text: "ยอดรวมแยกประเภท (วัน/สัปดาห์/เดือน)", weight: "bold", size: "sm" },
-        createSummaryRow("🪙 เหรียญ", branchSummary.coin),
-        createSummaryRow("💵 ธนบัตร", branchSummary.bank),
-        createSummaryRow("📱 QR Code", branchSummary.qr),
+        { type: "text", text: "ยอดรวมทุกเครื่องแยกประเภท", weight: "bold", size: "sm" },
+        createSummaryRow("🪙 เหรียญรวม", branchSummary.coin),
+        createSummaryRow("💵 ธนบัตรรวม", branchSummary.bank),
+        createSummaryRow("📱 QR รวม", branchSummary.qr),
         { type: "separator" },
         { type: "text", text: "* ว:วันนี้ / ส:7วัน / ด:30วัน", size: "xxs", color: "#aaaaaa" }
       ]
@@ -192,10 +196,11 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
   };
 
   return client.replyMessage(event.replyToken, [
-    { type: "flex", altText: "รายงานรายเครื่อง", contents: flexAllMachines },
+    { type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines },
     { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }
   ]);
 }
+
 
 // ฟังก์ชันช่วยสร้างแถวสรุปยอดรวม
 function createSummaryRow(label, data) {
