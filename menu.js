@@ -112,58 +112,109 @@ function chunkArray(arr, s) {
   return res; 
 }
 async function sendBranchReport(event, branchId, branchName, supabase, client) {
-  // ดึงข้อมูลทั้งหมดของสาขานี้
   const { data: logs, error } = await supabase
-    .from('transactions') // ใช้ชื่อตารางที่เปรมรัน SQL ไว้
+    .from('transactions')
     .select('*')
     .eq('branch_id', branchId);
 
-  if (error) return client.replyMessage(event.replyToken, { type: 'text', text: 'คํานวณเงินไม่สำเร็จค่ะ' });
+  if (error || !logs) return client.replyMessage(event.replyToken, { type: 'text', text: 'คํานวณเงินไม่สำเร็จค่ะ' });
 
   const now = new Date();
-  let dayTotal = 0, weekTotal = 0, monthTotal = 0;
-  let coin = 0, bank = 0, qr = 0;
+  const machineData = {};
+  const branchSummary = {
+    coin: { day: 0, week: 0, month: 0 },
+    bank: { day: 0, week: 0, month: 0 },
+    qr: { day: 0, week: 0, month: 0 }
+  };
 
+  // ประมวลผลข้อมูล
   logs.forEach(log => {
     const logDate = new Date(log.created_at);
-    const diffTime = Math.abs(now - logDate);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const diffDays = Math.ceil(Math.abs(now - logDate) / (1000 * 60 * 60 * 24));
+    const mId = log.machine_id;
 
-    // แยกประเภทเงิน (รวมทั้งหมด)
-    if (log.type === 'coin') coin += log.amount;
-    else if (log.type === 'bank') bank += log.amount;
-    else if (log.type === 'qr') qr += log.amount;
+    if (!machineData[mId]) {
+      machineData[mId] = { coin: 0, bank: 0, qr: 0, total: 0 };
+    }
+    
+    // แยกตามเครื่อง (ยอดรวมทั้งหมดของเครื่องนั้น)
+    if (log.type === 'coin') machineData[mId].coin += log.amount;
+    if (log.type === 'bank') machineData[mId].bank += log.amount;
+    if (log.type === 'qr') machineData[mId].qr += log.amount;
+    machineData[mId].total += log.amount;
 
-    // คำนวณช่วงเวลา
-    if (diffDays <= 1) dayTotal += log.amount;
-    if (diffDays <= 7) weekTotal += log.amount;
-    if (diffDays <= 30) monthTotal += log.amount;
+    // แยกสรุปรวมสาขาตามช่วงเวลา
+    if (diffDays <= 1) branchSummary[log.type].day += log.amount;
+    if (diffDays <= 7) branchSummary[log.type].week += log.amount;
+    if (diffDays <= 30) branchSummary[log.type].month += log.amount;
   });
 
-  // ส่ง Flex Message สรุปยอด (เรย่อส่วน JSON ให้ดูง่ายๆ นะคะ)
-  return client.replyMessage(event.replyToken, {
-    type: "flex",
-    altText: `รายงานสาขา ${branchName}`,
-    contents: {
-      type: "bubble",
-      header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `📊 รายงานสาขา: ${branchName}`, color: "#ffffff", weight: "bold" }] },
-      body: {
-        type: "box", layout: "vertical", spacing: "md",
+  // --- ส่วนการสร้างหน้าตา Flex ---
+
+  // 1. สร้างเนื้อหาในตารางรายเครื่อง
+  const machineRows = [];
+  Object.keys(machineData).forEach((mId, index) => {
+    const d = machineData[mId];
+    // เพิ่มขีดคั่นระหว่างเครื่อง (ยกเว้นเครื่องแรก)
+    if (index > 0) machineRows.push({ type: "separator", margin: "md" });
+    
+    machineRows.push({
+      type: "box", layout: "vertical", margin: "md", spacing: "xs",
+      contents: [
+        { type: "text", text: `📟 เครื่อง: ${mId}`, weight: "bold", size: "sm", color: "#111111" },
+        { type: "box", layout: "horizontal", contents: [{ type: "text", text: "เหรียญ/แบงค์/QR", size: "xs", color: "#888888" }, { type: "text", text: `${d.coin}/${d.bank}/${d.qr}`, align: "end", size: "xs" }] },
+        { type: "box", layout: "horizontal", contents: [{ type: "text", text: "ยอดรวมเครื่องนี้", size: "sm", weight: "bold" }, { type: "text", text: `฿${d.total.toLocaleString()}`, align: "end", size: "sm", weight: "bold", color: "#4169E1" }] }
+      ]
+    });
+  });
+
+  const flexAllMachines = {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📋 รายเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+    body: { type: "box", layout: "vertical", contents: machineRows }
+  };
+
+  // 2. สร้าง Flex สรุปยอดรวม (ใช้ฟังก์ชัน getSummaryFlex เดิมที่เรเคยให้ไว้ได้เลย)
+  const flexSummary = {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `🏆 สรุปภาพรวม: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+    body: {
+      type: "box", layout: "vertical", spacing: "md",
+      contents: [
+        { type: "text", text: "ยอดรวมแยกประเภท (วัน/สัปดาห์/เดือน)", weight: "bold", size: "sm" },
+        createSummaryRow("🪙 เหรียญ", branchSummary.coin),
+        createSummaryRow("💵 ธนบัตร", branchSummary.bank),
+        createSummaryRow("📱 QR Code", branchSummary.qr),
+        { type: "separator" },
+        { type: "text", text: "* ว:วันนี้ / ส:7วัน / ด:30วัน", size: "xxs", color: "#aaaaaa" }
+      ]
+    }
+  };
+
+  return client.replyMessage(event.replyToken, [
+    { type: "flex", altText: "รายงานรายเครื่อง", contents: flexAllMachines },
+    { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }
+  ]);
+}
+
+// ฟังก์ชันช่วยสร้างแถวสรุปยอดรวม
+function createSummaryRow(label, data) {
+  return {
+    type: "box", layout: "vertical", spacing: "xs", margin: "sm",
+    contents: [
+      { type: "text", text: label, size: "xs", weight: "bold" },
+      {
+        type: "box", layout: "horizontal",
         contents: [
-          { type: "text", text: "แยกตามประเภท (ยอดรวม)", weight: "bold", size: "sm", color: "#888888" },
-          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "🪙 เหรียญ:" }, { type: "text", text: `฿${coin.toLocaleString()}`, align: "end", weight: "bold" }] },
-          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "💵 ธนบัตร:" }, { type: "text", text: `฿${bank.toLocaleString()}`, align: "end", weight: "bold" }] },
-          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "📱 QR Code:" }, { type: "text", text: `฿${qr.toLocaleString()}`, align: "end", weight: "bold" }] },
-          { type: "separator", margin: "md" },
-          { type: "text", text: "สรุปตามช่วงเวลา", weight: "bold", size: "sm", color: "#888888" },
-          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "📅 วันนี้:" }, { type: "text", text: `฿${dayTotal.toLocaleString()}`, align: "end", color: "#1DB446", weight: "bold" }] },
-          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "📅 สัปดาห์นี้:" }, { type: "text", text: `฿${weekTotal.toLocaleString()}`, align: "end", weight: "bold" }] },
-          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "📅 เดือนนี้:" }, { type: "text", text: `฿${monthTotal.toLocaleString()}`, align: "end", weight: "bold" }] }
+          { type: "text", text: `ว: ${data.day.toLocaleString()}`, size: "xs", color: "#1DB446" },
+          { type: "text", text: `ส: ${data.week.toLocaleString()}`, size: "xs", color: "#F39C12", align: "center" },
+          { type: "text", text: `ด: ${data.month.toLocaleString()}`, size: "xs", align: "end" }
         ]
       }
-    }
-  });
+    ]
+  };
 }
+
 
 // --- 6. Export ---
 module.exports = {
