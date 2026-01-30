@@ -86,27 +86,53 @@ function getBranchSelectMenu(mapping) {
   };
 }
 
+// --- 1. รายงานรายสาขา (ดึงจาก transactions และแสดงผล ว/ส/ด) ---
 async function sendBranchReport(event, branchId, branchName, supabase, client) {
-  const { data: logs, error } = await supabase.from('transactions').select('*').eq('branch_id', branchId);
-  if (error || !logs) return client.replyMessage(event.replyToken, { type: 'text', text: 'คํานวณเงินไม่สำเร็จค่ะ' });
+  const { data: logs, error } = await supabase
+    .from('transactions')
+    .select('*')
+    .eq('branch_id', branchId);
+
+  if (error || !logs || logs.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: `ไม่พบข้อมูลธุรกรรมของสาขา ${branchName} ค่ะ` });
+
   const now = new Date();
   const machineData = {};
-  const branchSummary = { coin: { day: 0, week: 0, month: 0 }, bank: { day: 0, week: 0, month: 0 }, qr: { day: 0, week: 0, month: 0 } };
+  const branchSummary = {
+    coin: { day: 0, week: 0, month: 0 },
+    bank: { day: 0, week: 0, month: 0 },
+    qr: { day: 0, week: 0, month: 0 }
+  };
 
   logs.forEach(log => {
     const logDate = new Date(log.created_at);
-    const diffDays = Math.ceil(Math.abs(now - logDate) / (1000 * 60 * 60 * 24));
+    // คำนวณส่วนต่างวัน (ใช้ค่าสัมบูรณ์เพื่อให้ครอบคลุมข้อมูลสุ่มที่อาจจะคลาดเคลื่อน)
+    const diffTime = Math.abs(now - logDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
     const mId = log.machine_id;
     const type = log.type;
+
     if (!machineData[mId]) {
-      machineData[mId] = { coin: { day: 0, week: 0, month: 0 }, bank: { day: 0, week: 0, month: 0 }, qr: { day: 0, week: 0, month: 0 } };
+      machineData[mId] = {
+        coin: { day: 0, week: 0, month: 0 },
+        bank: { day: 0, week: 0, month: 0 },
+        qr: { day: 0, week: 0, month: 0 }
+      };
     }
-    if (diffDays <= 1) machineData[mId][type].day += log.amount;
-    if (diffDays <= 7) machineData[mId][type].week += log.amount;
-    if (diffDays <= 30) machineData[mId][type].month += log.amount;
-    if (diffDays <= 1) branchSummary[type].day += log.amount;
-    if (diffDays <= 7) branchSummary[type].week += log.amount;
-    if (diffDays <= 30) branchSummary[type].month += log.amount;
+
+    // เก็บสถิติ (ว: 1 วัน / ส: 7 วัน / ด: 30 วัน)
+    if (diffDays <= 1) {
+      machineData[mId][type].day += log.amount;
+      branchSummary[type].day += log.amount;
+    }
+    if (diffDays <= 7) {
+      machineData[mId][type].week += log.amount;
+      branchSummary[type].week += log.amount;
+    }
+    if (diffDays <= 30) {
+      machineData[mId][type].month += log.amount;
+      branchSummary[type].month += log.amount;
+    }
   });
 
   const machineRows = [];
@@ -124,44 +150,120 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
     });
   });
 
-  const flexAllMachines = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", contents: machineRows } };
-  const flexSummary = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `🏆 สรุปภาพรวมสาขา: ${branchName}`, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: "ยอดรวมทุกเครื่องแยกประเภท", weight: "bold", size: "sm" }, createSummaryRow("🪙 เหรียญรวม", branchSummary.coin), createSummaryRow("💵 ธนบัตรรวม", branchSummary.bank), createSummaryRow("📱 QR รวม", branchSummary.qr), { type: "separator" }, { type: "text", text: "* ว:วันนี้ / ส:7วัน / ด:30วัน", size: "xxs", color: "#aaaaaa" }] } };
-  return client.replyMessage(event.replyToken, [{ type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines }, { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }]);
+  const flexAllMachines = {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+    body: { type: "box", layout: "vertical", contents: machineRows }
+  };
+
+  const flexSummary = {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `🏆 สรุปภาพรวมสาขา: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+    body: {
+      type: "box", layout: "vertical", spacing: "md",
+      contents: [
+        { type: "text", text: "ยอดรวมทุกเครื่องแยกประเภท", weight: "bold", size: "sm" },
+        createSummaryRow("🪙 เหรียญรวม", branchSummary.coin),
+        createSummaryRow("💵 ธนบัตรรวม", branchSummary.bank),
+        createSummaryRow("📱 QR รวม", branchSummary.qr),
+        { type: "separator" },
+        { type: "text", text: "* ว:วันนี้ / ส:7วัน / ด:30วัน", size: "xxs", color: "#aaaaaa" }
+      ]
+    }
+  };
+
+  return client.replyMessage(event.replyToken, [
+    { type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines },
+    { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }
+  ]);
 }
 
+// --- 2. รายงานรวมรายเดือน (ดึงข้อมูลย้อนหลัง 1 ปี และ Sum ยอดทั้งหมด) ---
 async function sendYearlySummaryReport(event, supabase, client) {
   try {
     const userId = event.source.userId;
     const { data: mapping } = await supabase.from('owner_branch_mapping').select('branch_id, branches(branch_name)').eq('owner_line_id', userId);
+    
     if (!mapping || mapping.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาค่ะ' });
+
     const branchIds = mapping.map(m => m.branch_id);
     const branchMap = {};
     mapping.forEach(m => branchMap[m.branch_id] = m.branches.branch_name);
+
     const now = new Date();
-    const currentYear = now.getFullYear();
-    const lastYear = currentYear - 1;
-    const startOfLastYear = new Date(lastYear, 0, 1).toISOString();
-    const { data: transactions } = await supabase.from('transactions').select('amount, created_at, branch_id').in('branch_id', branchIds).gte('created_at', startOfLastYear);
+    const startOfLastYear = new Date(now.getFullYear() - 1, 0, 1).toISOString();
+
+    const { data: transactions } = await supabase
+      .from('transactions')
+      .select('amount, created_at, branch_id')
+      .in('branch_id', branchIds)
+      .gte('created_at', startOfLastYear);
+
     const branchBubbles = Object.keys(branchMap).map(id => {
-      let totalAllYear = 0;
+      let totalDisplayed = 0;
       const monthlyRows = [];
+
       for (let mIdx = 0; mIdx <= 11; mIdx++) {
-        const thisYearData = (transactions || []).filter(t => t.branch_id === id && new Date(t.created_at).getFullYear() === currentYear && new Date(t.created_at).getMonth() === mIdx);
-        const lastYearData = (transactions || []).filter(t => t.branch_id === id && new Date(t.created_at).getFullYear() === lastYear && new Date(t.created_at).getMonth() === mIdx);
-        let displayAmount = 0;
-        let displayYear = "";
-        if (thisYearData.length > 0) { displayAmount = thisYearData.reduce((sum, t) => sum + t.amount, 0); displayYear = ` (${currentYear + 543})`; }
-        else if (lastYearData.length > 0) { displayAmount = lastYearData.reduce((sum, t) => sum + t.amount, 0); displayYear = ` (${lastYear + 543})`; }
-        if (displayAmount > 0 || mIdx <= now.getMonth()) {
-          totalAllYear += displayAmount;
-          monthlyRows.push({ type: "box", layout: "horizontal", contents: [{ type: "text", text: new Date(0, mIdx).toLocaleString('th-TH', { month: 'short' }) + displayYear, size: "sm", color: "#888888" }, { type: "text", text: `฿${displayAmount.toLocaleString()}`, align: "end", size: "sm", weight: displayAmount > 0 ? "bold" : "regular" }] });
+        // กรองหาธุรกรรมของเดือนนั้นๆ (เลือกปีล่าสุดที่มีข้อมูล)
+        const monthTransactions = (transactions || [])
+          .filter(t => t.branch_id === id && new Date(t.created_at).getMonth() === mIdx)
+          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+        if (monthTransactions.length > 0) {
+          const latestYear = new Date(monthTransactions[0].created_at).getFullYear();
+          // รวมยอดเงินทั้งหมดของเดือนนั้นในปีนั้น
+          const monthlySum = monthTransactions
+            .filter(t => new Date(t.created_at).getFullYear() === latestYear)
+            .reduce((sum, t) => sum + t.amount, 0);
+
+          totalDisplayed += monthlySum;
+          monthlyRows.push({
+            type: "box", layout: "horizontal", contents: [
+              { type: "text", text: new Date(0, mIdx).toLocaleString('th-TH', { month: 'short' }) + ` (${latestYear + 543})`, size: "sm", color: "#888888" },
+              { type: "text", text: `฿${monthlySum.toLocaleString()}`, align: "end", size: "sm", weight: "bold" }
+            ]
+          });
+        } else if (mIdx <= now.getMonth()) {
+          // ถ้าเดือนที่ผ่านมาแล้วยังไม่มีข้อมูล ให้โชว์เป็น ฿0 (ปีปัจจุบัน)
+          monthlyRows.push({
+            type: "box", layout: "horizontal", contents: [
+              { type: "text", text: new Date(0, mIdx).toLocaleString('th-TH', { month: 'short' }) + ` (${now.getFullYear() + 543})`, size: "sm", color: "#888888" },
+              { type: "text", text: `฿0`, align: "end", size: "sm", color: "#cccccc" }
+            ]
+          });
         }
       }
-      return { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `📍 สาขา: ${branchMap[id]}`, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "sm", contents: [{ type: "text", text: "สรุปรายเดือน (รวมทุกเครื่อง)", size: "xs", weight: "bold", color: "#aaaaaa" }, { type: "separator", margin: "sm" }, ...monthlyRows, { type: "separator", margin: "md" }, { type: "box", layout: "horizontal", margin: "md", contents: [{ type: "text", text: "รวมยอดที่แสดง", weight: "bold", size: "sm" }, { type: "text", text: `฿${totalAllYear.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }] }] } };
+
+      return {
+        type: "bubble",
+        header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `📍 สาขา: ${branchMap[id]}`, color: "#ffffff", weight: "bold" }] },
+        body: {
+          type: "box", layout: "vertical", spacing: "sm",
+          contents: [
+            { type: "text", text: "สรุปยอดรายเดือน (Latest Month)", size: "xs", weight: "bold", color: "#aaaaaa" },
+            { type: "separator", margin: "sm" },
+            ...monthlyRows,
+            { type: "separator", margin: "md" },
+            {
+              type: "box", layout: "horizontal", margin: "md",
+              contents: [
+                { type: "text", text: "รวมตามรายการข้างบน", weight: "bold", size: "sm" },
+                { type: "text", text: `฿${totalDisplayed.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }
+              ]
+            }
+          ]
+        }
+      };
     });
-    return client.replyMessage(event.replyToken, { type: "flex", altText: "รายงานสรุปรายปี", contents: { type: "carousel", contents: branchBubbles.slice(0, 10) } });
+
+    return client.replyMessage(event.replyToken, {
+      type: "flex",
+      altText: "รายงานสรุปรายปี",
+      contents: { type: "carousel", contents: branchBubbles.slice(0, 10) }
+    });
   } catch (err) { console.error(err); }
 }
+
 
 function createSummaryRow(label, data) {
   return { type: "box", layout: "vertical", spacing: "xs", margin: "sm", contents: [{ type: "text", text: label, size: "xs", weight: "bold" }, { type: "box", layout: "horizontal", contents: [{ type: "text", text: `ว: ${data.day.toLocaleString()}`, size: "xs", color: "#1DB446" }, { type: "text", text: `ส: ${data.week.toLocaleString()}`, size: "xs", color: "#F39C12", align: "center" }, { type: "text", text: `ด: ${data.month.toLocaleString()}`, size: "xs", align: "end" }] }] };
