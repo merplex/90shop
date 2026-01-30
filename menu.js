@@ -356,9 +356,33 @@ async function sendComparisonReport(event, idsStr, dateStr, supabase, client) {
 async function sendMachineSelector(event, branchId, branchName, supabase, client) { /* Legacy fallback */ }
 async function sendMachineDetailReport(event, machineId, dateStr, supabase, client) { /* Legacy fallback */ }
 
+// --- Helper: สร้างแถว 4 ช่อง (ว / ส / ด / รวม) ---
 function createSummaryRow(label, data) {
-  return { type: "box", layout: "vertical", spacing: "xs", margin: "sm", contents: [{ type: "text", text: label, size: "xs", weight: "bold" }, { type: "box", layout: "horizontal", contents: [{ type: "text", text: `ว: ${data.day.toLocaleString()}`, size: "xs", color: "#1DB446", flex: 3 }, { type: "text", text: `ด: ${data.month.toLocaleString()}`, size: "xs", color: "#F39C12", align: "center", flex: 3 }, { type: "text", text: `รวม: ${data.all.toLocaleString()}`, size: "xs", color: "#000000", align: "end", weight: "bold", flex: 4 }] }] };
+  return {
+    type: "box", layout: "vertical", spacing: "xs", margin: "sm",
+    contents: [
+      // ชื่อประเภท (เหรียญ, ธนบัตร, QR)
+      { type: "text", text: label, size: "xs", weight: "bold", color: "#555555" },
+      {
+        type: "box", layout: "horizontal",
+        contents: [
+          // ช่อง 1: วัน (ว) - สีเขียว
+          { type: "text", text: `ว: ${Number(data.day).toLocaleString()}`, size: "xxs", color: "#1DB446", flex: 2 },
+          
+          // ✅ ช่อง 2: สัปดาห์ (ส) - สีส้ม (เพิ่มตรงนี้!)
+          { type: "text", text: `ส: ${Number(data.week).toLocaleString()}`, size: "xxs", color: "#FF9900", flex: 2, align: "center" },
+          
+          // ช่อง 3: เดือน (ด) - สีฟ้า
+          { type: "text", text: `ด: ${Number(data.month).toLocaleString()}`, size: "xxs", color: "#0099FF", flex: 2, align: "center" },
+          
+          // ช่อง 4: รวม (Total) - สีดำ ตัวหนา
+          { type: "text", text: `รวม: ${Number(data.all).toLocaleString()}`, size: "xxs", color: "#000000", weight: "bold", align: "end", flex: 3 }
+        ]
+      }
+    ]
+  };
 }
+
 
 function chunkArray(arr, s) { const res = []; for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); return res; }
 
