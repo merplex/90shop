@@ -77,7 +77,6 @@ async function handleBranchReportLogic(event, supabase, client) {
 
   // 2. เรียกฟังก์ชันส่งรายงานตามหลังมา
       return sendBranchReport(event, mapping[0].branch_id, mapping[0].branches.branch_name, supabase, client);
-    }
 
     } else {
       // ส่ง Flex เลือกสาขาถ้าคุมหลายที่
