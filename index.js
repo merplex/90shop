@@ -61,7 +61,7 @@ async function handleEvent(event) {
     const [branchId, branchName] = rawData.split('|');
 
   // 2. เรียกฟังก์ชันแสดงรายงาน (ที่เรา Import มาจาก menu.js)
-    return menu.sendBranchReport(event, branchId, branchName, supabase, client);
+    return sendBranchReport(event, branchId, branchName, supabase, client);
   }
 
   if (userText === 'เมนูจัดการ') return sendManageMenu(event);
