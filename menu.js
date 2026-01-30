@@ -202,6 +202,96 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
     }
   };
 
+async function sendYearlySummaryReport(event, supabase, client) {
+  const userId = event.source.userId;
+
+  // 1. หาว่า Owner คนนี้คุมสาขาอะไรบ้าง
+  const { data: mapping } = await supabase
+    .from('owner_branch_mapping')
+    .select('branch_id, branches(branch_name)')
+    .eq('owner_line_id', userId);
+
+  if (!mapping || mapping.length === 0) {
+    return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาที่ผูกกับบัญชีของคุณค่ะ' });
+  }
+
+  const branchIds = mapping.map(m => m.branch_id);
+  const branchMap = {}; // ไว้เก็บชื่อสาขาตาม ID
+  mapping.forEach(m => branchMap[m.branch_id] = m.branches.branch_name);
+
+  // 2. กำหนดช่วงเวลา (12 เดือนย้อนหลัง)
+  const now = new Date();
+  const firstDayOfYear = new Date(now.getFullYear(), 0, 1).toISOString(); // เริ่มต้นปีนี้
+
+  // 3. ดึง Transaction ของทุกสาขาในปีนี้
+  const { data: transactions } = await supabase
+    .from('machine_transactions')
+    .select('amount, created_at, branch_id')
+    .in('branch_id', branchIds)
+    .gte('created_at', firstDayOfYear);
+
+  // 4. จัดกลุ่มข้อมูล [สาขา][เดือน] = ยอดรวม
+  const reportData = {};
+  branchIds.forEach(id => {
+    reportData[id] = Array(12).fill(0); // เตรียมไว้ 12 เดือน (0-11)
+  });
+
+  transactions.forEach(t => {
+    const month = new Date(t.created_at).getMonth();
+    if (reportData[t.branch_id]) {
+      reportData[t.branch_id][month] += t.amount;
+    }
+  });
+
+  // 5. สร้าง Flex Message
+  const branchBubbles = Object.keys(reportData).map(id => {
+    const monthlyRows = reportData[id].map((amount, idx) => {
+      if (amount === 0 && idx > now.getMonth()) return null; // ไม่แสดงเดือนที่ยังมาไม่ถึงและไม่มีเงิน
+      return {
+        type: "box", layout: "horizontal", contents: [
+          { type: "text", text: new Date(0, idx).toLocaleString('th-TH', { month: 'short' }), size: "sm", color: "#888888" },
+          { type: "text", text: `฿${amount.toLocaleString()}`, align: "end", size: "sm", weight: amount > 0 ? "bold" : "regular" }
+        ]
+      };
+    }).filter(row => row !== null);
+
+    return {
+      type: "bubble",
+      header: {
+        type: "box", layout: "vertical", backgroundColor: "#00b900",
+        contents: [{ type: "text", text: `📍 สาขา: ${branchMap[id]}`, color: "#ffffff", weight: "bold" }]
+      },
+      body: {
+        type: "box", layout: "vertical", spacing: "sm",
+        contents: [
+          { type: "text", text: "สรุปยอดรายเดือน (ปีนี้)", size: "xs", weight: "bold", color: "#aaaaaa" },
+          { type: "separator", margin: "sm" },
+          ...monthlyRows,
+          { type: "separator", margin: "md" },
+          {
+            type: "box", layout: "horizontal", margin: "md",
+            contents: [
+              { type: "text", text: "รวมทั้งปี", weight: "bold" },
+              { type: "text", text: `฿${reportData[id].reduce((a, b) => a + b, 0).toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }
+            ]
+          }
+        ]
+      }
+    };
+  });
+
+  return client.replyMessage(event.replyToken, {
+    type: "flex",
+    altText: "รายงานสรุปรายปีแยกสาขา",
+    contents: { type: "carousel", contents: branchBubbles.slice(0, 10) } // แสดงได้สูงสุด 10 สาขาในหนึ่ง Carousel
+  });
+}
+
+module.exports = {
+  // ... อันเดิม ...
+  sendYearlySummaryReport
+};
+
   return client.replyMessage(event.replyToken, [
     { type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines },
     { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }
@@ -234,6 +324,7 @@ module.exports = {
   getReportSelectionMenu,
   getBranchSelectMenu,
   sendBranchReport,
+  sendMonthlyTotalReport:sendYearlySummaryReport,
   handleBranchReportLogic,
   ALPHABET_GROUPS,
   chunkArray

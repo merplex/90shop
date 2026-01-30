@@ -55,6 +55,10 @@ async function handleEvent(event) {
   if (userText === 'REPORT_BRANCH_SELECT') {
     return handleBranchReportLogic(event, supabase, client);
   }
+  if (userText === 'REPORT_MONTHLY_TOTAL') {
+    return sendMonthlyTotalReport(event, supabase, client);
+  }
+
   if (event.message.text.startsWith('VIEW_REPORT_ID:')) {
   // 1. แกะข้อมูลจาก VIEW_REPORT_ID:dd2bf7e4-b23d-4a46-a374-1c3525eb8c88|CC
     const rawData = event.message.text.replace('VIEW_REPORT_ID:', ''); // เหลือ dd2bf7e4...|CC
