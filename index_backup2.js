@@ -1,3 +1,16 @@
+// index.js (ส่วนบนสุด)
+const { 
+  getAdminMenu, 
+  getReportSelectionMenu, 
+  getBranchSelectMenu, 
+  sendMonthlyTotalReport,
+  handleBranchReportLogic, // <<--- เปรมต้องเช็กว่ามีคำนี้ในบรรทัดที่ 1 ของ index.js หรือยัง
+  sendBranchReport,
+  ALPHABET_GROUPS, 
+  chunkArray 
+} = require('./menu');
+
+
 const express = require('express');
 const line = require('@line/bot-sdk');
 const { createClient } = require('@supabase/supabase-js');
@@ -12,13 +25,6 @@ const client = new line.Client(config);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const app = express();
 
-const ALPHABET_GROUPS = {
-  "A-B": "AB".split(""), "C-D": "CD".split(""), "E-F": "EF".split(""),
-  "G-H": "GH".split(""), "I-J": "IJ".split(""), "K-L": "KL".split(""),
-  "M-N": "MN".split(""), "O-P": "OP".split(""), "Q-R": "QR".split(""),
-  "S-T": "ST".split(""), "U-V": "UV".split(""), "W-Z": "WXYZ".split("")
-};
-
 app.post('/webhook', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
 });
@@ -29,7 +35,40 @@ async function handleEvent(event) {
   console.log(`[Log] Incoming: "${userText}"`);
 
   // --- 1. Admin Menu ---
-  if (userText.toLowerCase() === 'admin') return sendAdminMenu(event);
+  // ตอนจะส่งเมนู Admin ก็เหลือแค่สั้นๆ แบบนี้:
+  if (userText.toLowerCase() === 'admin') {
+    return client.replyMessage(event.replyToken, {
+      type: "flex",
+      altText: "Admin Menu",
+      contents: getAdminMenu()
+    });
+  }
+
+  // ตอนกดปุ่มรายงานจาก Rich Menu:
+  if (userText === 'OWNER_REPORT') { // หรือคำสั่งที่เปรมตั้งใน Rich Menu
+    return client.replyMessage(event.replyToken, {
+      type: "flex",
+      altText: "Select Report",
+      contents: getReportSelectionMenu()
+    });
+  }
+  // สำหรับ menu.js 
+  if (userText === 'REPORT_BRANCH_SELECT') {
+    return handleBranchReportLogic(event, supabase, client);
+  }
+  if (userText === 'REPORT_MONTHLY_TOTAL') {
+    return sendMonthlyTotalReport(event, supabase, client);
+  }
+
+  if (event.message.text.startsWith('VIEW_REPORT_ID:')) {
+  // 1. แกะข้อมูลจาก VIEW_REPORT_ID:dd2bf7e4-b23d-4a46-a374-1c3525eb8c88|CC
+    const rawData = event.message.text.replace('VIEW_REPORT_ID:', ''); // เหลือ dd2bf7e4...|CC
+    const [branchId, branchName] = rawData.split('|');
+
+  // 2. เรียกฟังก์ชันแสดงรายงาน (ที่เรา Import มาจาก menu.js)
+    return sendBranchReport(event, branchId, branchName, supabase, client);
+  }
+
   if (userText === 'เมนูจัดการ') return sendManageMenu(event);
 
   // --- 2. Create Commands ---
@@ -244,6 +283,7 @@ async function handleCreateBranch(event, text) {
   return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึกสาขา: ${name}` });
 }
 
+
 function sendAlphabetMenu(event, prefix) {
   const keys = Object.keys(ALPHABET_GROUPS);
   const rows = chunkArray(keys, 3);
@@ -256,7 +296,6 @@ function sendConfirmMatch(event, oName, oId, bName, bId) {
   return client.replyMessage(event.replyToken, { type: "flex", altText: "Confirm", contents: flex });
 }
 
-function chunkArray(arr, s) { const res = []; for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); return res; }
 function sendManageMenu(event) { return client.replyMessage(event.replyToken, { type: 'text', text: 'พิมพ์ admin เพื่อดูเมนูทั้งหมดค่ะ' }); }
 
 const PORT = process.env.PORT || 8080;
