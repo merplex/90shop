@@ -1,5 +1,5 @@
 // index.js (ส่วนบนสุด)
-const { getAdminMenu, getReportSelectionMenu, ALPHABET_GROUPS, chunkArray } = require('./menus');
+const { getAdminMenu, getReportSelectionMenu, ALPHABET_GROUPS, chunkArray } = require('./menu');
 
 const express = require('express');
 const line = require('@line/bot-sdk');
