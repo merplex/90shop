@@ -89,6 +89,9 @@ function getBranchSelectMenu(mapping) {
   };
 }
 
+// ... (ส่วนบนของ menu.js เหมือนเดิม) ...
+
+// --- ฟังก์ชันรายงานรายสาขา (ปรับปรุง: เพิ่มช่องสัปดาห์ + ขยายกว้าง) ---
 async function sendBranchReport(event, branchId, branchName, supabase, client) {
   const { data: stats, error } = await supabase.rpc('get_branch_stats', { query_branch_id: branchId });
 
@@ -102,22 +105,35 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
   }
 
   const machineData = {};
-  const branchSummary = { coin: { day: 0, month: 0, all: 0 }, bank: { day: 0, month: 0, all: 0 }, qr: { day: 0, month: 0, all: 0 } };
+  // เพิ่ม week เข้ามาในโครงสร้าง
+  const branchSummary = {
+    coin: { day: 0, week: 0, month: 0, all: 0 },
+    bank: { day: 0, week: 0, month: 0, all: 0 },
+    qr: { day: 0, week: 0, month: 0, all: 0 }
+  };
 
   stats.forEach(row => {
     const mId = row.machine_id;
     const type = row.payment_type ? row.payment_type.toLowerCase() : 'coin';
 
     if (!machineData[mId]) {
-      machineData[mId] = { coin: { day: 0, month: 0, all: 0 }, bank: { day: 0, month: 0, all: 0 }, qr: { day: 0, month: 0, all: 0 } };
+      machineData[mId] = {
+        coin: { day: 0, week: 0, month: 0, all: 0 },
+        bank: { day: 0, week: 0, month: 0, all: 0 },
+        qr: { day: 0, week: 0, month: 0, all: 0 }
+      };
     }
+
     if (machineData[mId][type]) {
         machineData[mId][type].day = row.day_total;
+        machineData[mId][type].week = row.week_total; // รับค่า week
         machineData[mId][type].month = row.month_total;
         machineData[mId][type].all = row.all_total;
     }
+
     if (branchSummary[type]) {
         branchSummary[type].day += row.day_total;
+        branchSummary[type].week += row.week_total; // บวกค่า week
         branchSummary[type].month += row.month_total;
         branchSummary[type].all += row.all_total;
     }
@@ -138,10 +154,65 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
     });
   });
 
-  const flexAllMachines = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", contents: machineRows } };
-  const flexSummary = { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `🏆 สรุปภาพรวมสาขา: ${branchName}`, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "md", contents: [{ type: "text", text: "ยอดรวมทุกเครื่องแยกประเภท", weight: "bold", size: "sm" }, createSummaryRow("🪙 เหรียญรวม", branchSummary.coin), createSummaryRow("💵 ธนบัตรรวม", branchSummary.bank), createSummaryRow("📱 QR รวม", branchSummary.qr), { type: "separator" }, { type: "text", text: "* ว:24ชม. / ด:30วัน / รวม:ทั้งหมด", size: "xxs", color: "#aaaaaa" }] } };
-  return client.replyMessage(event.replyToken, [{ type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines }, { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }]);
+  const flexAllMachines = {
+    type: "bubble",
+    size: "giga", // ✅ ขยายขนาด Bubble เป็นไซส์ใหญ่สุด (GIGA)
+    header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+    body: { type: "box", layout: "vertical", contents: machineRows }
+  };
+
+  const flexSummary = {
+    type: "bubble",
+    size: "giga", // ✅ ขยายขนาด Bubble
+    header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `🏆 สรุปภาพรวมสาขา: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+    body: {
+      type: "box", layout: "vertical", spacing: "md",
+      contents: [
+        { type: "text", text: "ยอดรวมทุกเครื่องแยกประเภท", weight: "bold", size: "sm" },
+        createSummaryRow("🪙 เหรียญรวม", branchSummary.coin),
+        createSummaryRow("💵 ธนบัตรรวม", branchSummary.bank),
+        createSummaryRow("📱 QR รวม", branchSummary.qr),
+        { type: "separator" },
+        // ปรับคำอธิบาย
+        { type: "text", text: "* ว:24ชม. / ส:7วัน / ด:30วัน / รวม:ทั้งหมด", size: "xxs", color: "#aaaaaa" }
+      ]
+    }
+  };
+
+  return client.replyMessage(event.replyToken, [
+    { type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines },
+    { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }
+  ]);
 }
+
+// --- Helper สร้างแถว 4 คอลัมน์ (ว / ส / ด / รวม) ---
+function createSummaryRow(label, data) {
+  return {
+    type: "box", layout: "vertical", spacing: "xs", margin: "sm",
+    contents: [
+      { type: "text", text: label, size: "xs", weight: "bold", color: "#555555" },
+      {
+        type: "box", layout: "horizontal",
+        contents: [
+          // จัด Flex Ratio: 2:2:2:3 เพื่อให้ช่องรวมมีพื้นที่เยอะหน่อย
+          { type: "text", text: `ว: ${formatNumber(data.day)}`, size: "xxs", color: "#1DB446", flex: 2 },
+          { type: "text", text: `ส: ${formatNumber(data.week)}`, size: "xxs", color: "#FF9900", flex: 2 },
+          { type: "text", text: `ด: ${formatNumber(data.month)}`, size: "xxs", color: "#0099FF", flex: 2 },
+          { type: "text", text: `รวม: ${formatNumber(data.all)}`, size: "xxs", color: "#000000", weight: "bold", align: "end", flex: 3 }
+        ]
+      }
+    ]
+  };
+}
+
+// ฟังก์ชันย่อตัวเลข (เช่น 12,000 -> 12k) ถ้าพื้นที่ไม่พอจริงๆ ค่อยใช้
+// แต่ด้วย size: giga และ xxs น่าจะใส่คอมม่าได้ปกติครับ
+function formatNumber(num) {
+  return num.toLocaleString(); 
+}
+
+// ... (ส่วนอื่นๆ ของ menu.js เหมือนเดิม) ...
+
 
 // --- 3. รายงานรายเดือน (SQL Version) ---
 async function sendYearlySummaryReport(event, supabase, client) {
