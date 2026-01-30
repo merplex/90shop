@@ -54,6 +54,30 @@ function getReportSelectionMenu() {
     }
   };
 }
+  // --- 6. รายงานต่อสาขา (Step 1: เลือกสาขา) ---
+  if (userText === 'REPORT_BRANCH_SELECT') {
+    const { data: mapping, error } = await supabase
+      .from('owner_branch_mapping')
+      .select('branch_id, branches(branch_name)')
+      .eq('owner_line_id', event.source.userId);
+
+    if (error || !mapping || mapping.length === 0) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาที่ผูกกับบัญชีของคุณค่ะ' });
+    }
+
+    if (mapping.length === 1) {
+      // ถ้ามีสาขาเดียว ให้ข้ามไปเรียกรายงานเลย (เดี๋ยวเราจะสร้างฟังก์ชันเรียกรายงานกัน)
+      return sendBranchReport(event, mapping[0].branch_id, mapping[0].branches.branch_name);
+    } else {
+      // ถ้ามีหลายสาขา ให้ส่งเมนูเลือกสาขา (ใช้ getBranchSelectMenu จาก menu.js)
+      return client.replyMessage(event.replyToken, {
+        type: "flex",
+        altText: "เลือกสาขา",
+        contents: getBranchSelectMenu(mapping) 
+      });
+    }
+  }
+
 
 // --- ฟังก์ชันช่วยตัดแบ่ง Array (Helper) ---
 function chunkArray(arr, s) { 
