@@ -119,12 +119,66 @@ function chunkArray(arr, s) {
   for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); 
   return res; 
 }
+async function sendBranchReport(event, branchId, branchName, supabase, client) {
+  // ดึงข้อมูลทั้งหมดของสาขานี้
+  const { data: logs, error } = await supabase
+    .from('transactions') // ใช้ชื่อตารางที่เปรมรัน SQL ไว้
+    .select('*')
+    .eq('branch_id', branchId);
+
+  if (error) return client.replyMessage(event.replyToken, { type: 'text', text: 'คํานวณเงินไม่สำเร็จค่ะ' });
+
+  const now = new Date();
+  let dayTotal = 0, weekTotal = 0, monthTotal = 0;
+  let coin = 0, bank = 0, qr = 0;
+
+  logs.forEach(log => {
+    const logDate = new Date(log.created_at);
+    const diffTime = Math.abs(now - logDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    // แยกประเภทเงิน (รวมทั้งหมด)
+    if (log.type === 'coin') coin += log.amount;
+    else if (log.type === 'bank') bank += log.amount;
+    else if (log.type === 'qr') qr += log.amount;
+
+    // คำนวณช่วงเวลา
+    if (diffDays <= 1) dayTotal += log.amount;
+    if (diffDays <= 7) weekTotal += log.amount;
+    if (diffDays <= 30) monthTotal += log.amount;
+  });
+
+  // ส่ง Flex Message สรุปยอด (เรย่อส่วน JSON ให้ดูง่ายๆ นะคะ)
+  return client.replyMessage(event.replyToken, {
+    type: "flex",
+    altText: `รายงานสาขา ${branchName}`,
+    contents: {
+      type: "bubble",
+      header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `📊 รายงานสาขา: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+      body: {
+        type: "box", layout: "vertical", spacing: "md",
+        contents: [
+          { type: "text", text: "แยกตามประเภท (ยอดรวม)", weight: "bold", size: "sm", color: "#888888" },
+          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "🪙 เหรียญ:" }, { type: "text", text: `฿${coin.toLocaleString()}`, align: "end", weight: "bold" }] },
+          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "💵 ธนบัตร:" }, { type: "text", text: `฿${bank.toLocaleString()}`, align: "end", weight: "bold" }] },
+          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "📱 QR Code:" }, { type: "text", text: `฿${qr.toLocaleString()}`, align: "end", weight: "bold" }] },
+          { type: "separator", margin: "md" },
+          { type: "text", text: "สรุปตามช่วงเวลา", weight: "bold", size: "sm", color: "#888888" },
+          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "📅 วันนี้:" }, { type: "text", text: `฿${dayTotal.toLocaleString()}`, align: "end", color: "#1DB446", weight: "bold" }] },
+          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "📅 สัปดาห์นี้:" }, { type: "text", text: `฿${weekTotal.toLocaleString()}`, align: "end", weight: "bold" }] },
+          { type: "box", layout: "horizontal", contents: [{ type: "text", text: "📅 เดือนนี้:" }, { type: "text", text: `฿${monthTotal.toLocaleString()}`, align: "end", weight: "bold" }] }
+        ]
+      }
+    }
+  });
+}
 
 // --- 6. Export ---
 module.exports = {
   getAdminMenu,
   getReportSelectionMenu,
   getBranchSelectMenu,
+  sendBranchReport,
   handleBranchReportLogic,
   ALPHABET_GROUPS,
   chunkArray
