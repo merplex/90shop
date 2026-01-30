@@ -1,15 +1,22 @@
-// index.js (ส่วนบนสุด)
+// index.js
 const { 
   getAdminMenu, 
   getReportSelectionMenu, 
   getBranchSelectMenu, 
   sendMonthlyTotalReport,
-  handleBranchReportLogic, // <<--- เปรมต้องเช็กว่ามีคำนี้ในบรรทัดที่ 1 ของ index.js หรือยัง
+  handleBranchReportLogic, 
   sendBranchReport,
+  // --- เพิ่มฟังก์ชันใหม่ตรงนี้ ---
+  handleMachineReportLogic,
+  sendMachineSelector,
+  sendMultiMachineSelector,
+  sendDateSelector,
+  sendMachineDetailReport,
+  sendComparisonReport,
+  // -------------------------
   ALPHABET_GROUPS, 
   chunkArray 
 } = require('./menu');
-
 
 const express = require('express');
 const line = require('@line/bot-sdk');
@@ -30,12 +37,25 @@ app.post('/webhook', line.middleware(config), (req, res) => {
 });
 
 async function handleEvent(event) {
+  // ✅ 1. เพิ่มการรองรับ Postback (สำหรับ Date Picker)
+  if (event.type === 'postback') {
+    const data = event.postback.data;
+    // ถ้าส่งมาจากปฏิทิน ให้ไปหน้ารายงานเปรียบเทียบเลย
+    if (data.startsWith('MACHINE_DATE_SELECT|')) {
+      const idsStr = data.split('|')[1];
+      const selectedDate = event.postback.params.date; // YYYY-MM-DD
+      return sendComparisonReport(event, idsStr, selectedDate, supabase, client);
+    }
+    return null;
+  }
+
+  // ถ้าไม่ใช่ข้อความ ให้ข้าม
   if (event.type !== 'message' || event.message.type !== 'text') return null;
+  
   const userText = event.message.text.trim();
   console.log(`[Log] Incoming: "${userText}"`);
 
-  // --- 1. Admin Menu ---
-  // ตอนจะส่งเมนู Admin ก็เหลือแค่สั้นๆ แบบนี้:
+  // --- 2. Admin Menu (ของเดิม) ---
   if (userText.toLowerCase() === 'admin') {
     return client.replyMessage(event.replyToken, {
       type: "flex",
@@ -44,34 +64,83 @@ async function handleEvent(event) {
     });
   }
 
-  // ตอนกดปุ่มรายงานจาก Rich Menu:
-  if (userText === 'OWNER_REPORT') { // หรือคำสั่งที่เปรมตั้งใน Rich Menu
+  // --- 3. Report Menu หลัก ---
+  if (userText === 'OWNER_REPORT') { 
     return client.replyMessage(event.replyToken, {
       type: "flex",
       altText: "Select Report",
       contents: getReportSelectionMenu()
     });
   }
-  // สำหรับ menu.js 
+  
+  // รายงานสาขา & รายเดือน (ของเดิม)
   if (userText === 'REPORT_BRANCH_SELECT') {
     return handleBranchReportLogic(event, supabase, client);
   }
   if (userText === 'REPORT_MONTHLY_TOTAL') {
     return sendMonthlyTotalReport(event, supabase, client);
   }
-
-  if (event.message.text.startsWith('VIEW_REPORT_ID:')) {
-  // 1. แกะข้อมูลจาก VIEW_REPORT_ID:dd2bf7e4-b23d-4a46-a374-1c3525eb8c88|CC
-    const rawData = event.message.text.replace('VIEW_REPORT_ID:', ''); // เหลือ dd2bf7e4...|CC
+  if (userText.startsWith('VIEW_REPORT_ID:')) {
+    const rawData = userText.replace('VIEW_REPORT_ID:', ''); 
     const [branchId, branchName] = rawData.split('|');
-
-  // 2. เรียกฟังก์ชันแสดงรายงาน (ที่เรา Import มาจาก menu.js)
     return sendBranchReport(event, branchId, branchName, supabase, client);
   }
 
+  // --- 4. Machine Report (เพิ่มใหม่: เลือกเครื่อง & เทียบยอด) ---
+  if (userText === 'REPORT_MACHINE_SELECT') {
+    return handleMachineReportLogic(event, supabase, client);
+  }
+  
+  // Flow เลือกสาขา -> เลือกหลายเครื่อง
+  if (userText.startsWith('SELECT_MACHINE_BRANCH:')) {
+    const parts = userText.split(':')[1].split('|');
+    return sendMultiMachineSelector(event, parts[0], parts[1], [], supabase, client);
+  }
+
+  // Flow ติ๊กเลือกเครื่อง (Toggle)
+  if (userText.startsWith('TOGGLE_MACHINE:')) {
+    const raw = userText.split(':')[1];
+    const [branchId, branchName, targetId, currentListStr] = raw.split('|');
+    let currentList = currentListStr ? currentListStr.split(',') : [];
+    
+    if (currentList.includes(targetId)) {
+        currentList = currentList.filter(id => id !== targetId); // เอาออก
+    } else {
+        currentList.push(targetId); // เพิ่มเข้า
+    }
+    return sendMultiMachineSelector(event, branchId, branchName, currentList, supabase, client);
+  }
+
+  // Flow ยืนยันเครื่อง -> ไปเลือกวันที่
+  if (userText.startsWith('CONFIRM_COMPARE:')) {
+    const selectedIdsStr = userText.split(':')[1];
+    return sendDateSelector(event, selectedIdsStr, client);
+  }
+
+  // Flow แสดงรายงานเปรียบเทียบ (เมื่อกดปุ่ม วันนี้/เมื่อวาน)
+  if (userText.startsWith('VIEW_COMPARE_REPORT:')) {
+    const [idsStr, date] = userText.split(':')[1].split('|');
+    return sendComparisonReport(event, idsStr, date, supabase, client);
+  }
+
+  // Flow รายงานรายตัว (Legacy: เผื่อเปรมยังใช้ปุ่มเก่า)
+  if (userText.startsWith('SELECT_MACHINE_ID:')) {
+    const parts = userText.split(':')[1].split('|');
+    return sendMachineSelector(event, parts[0], parts[1], supabase, client);
+  }
+  if (userText.startsWith('SELECT_DATE_FOR:')) {
+    const machineId = userText.split(':')[1];
+    return sendDateSelector(event, machineId, client);
+  }
+  if (userText.startsWith('VIEW_MACHINE_REPORT:')) {
+    const parts = userText.split(':')[1].split('|');
+    return sendMachineDetailReport(event, parts[0], parts[1], supabase, client);
+  }
+
+
+  // --- 5. Logic เดิมของ Admin (CRUD, Grid, Matching) ---
   if (userText === 'เมนูจัดการ') return sendManageMenu(event);
 
-  // --- 2. Create Commands ---
   if (userText.toUpperCase().startsWith('U') && userText.includes(' ')) return handleCreateOwner(event, userText);
   if (userText.startsWith('Branch ')) return handleCreateBranch(event, userText);
   if (userText.startsWith('AddSuper ')) {
@@ -80,7 +149,7 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, { type: 'text', text: `✅ เพิ่ม Super Admin: ${adminId}` });
   }
 
-  // --- 3. Alphabet & Grid Selection ---
+  // Alphabet & Grid Selection
   if (userText === 'SELECT_GROUP_Owner') return sendAlphabetMenu(event, 'GRID_OWNER');
   if (userText === 'SELECT_GROUP_Branch') return sendAlphabetMenu(event, 'GRID_BRANCH');
   if (userText === 'SELECT_GROUP_Map') return sendAlphabetMenu(event, 'GRID_MAP');
@@ -90,7 +159,7 @@ async function handleEvent(event) {
   if (userText.startsWith('GRID_BRANCH:')) return showGrid(event, 'branch', userText.split(':')[1]);
   if (userText.startsWith('GRID_MAP:')) return showGrid(event, 'map', userText.split(':')[1]);
 
-  // --- 4. Matching Flow ---
+  // Matching Flow
   if (userText.startsWith('MATCH_STEP1:')) return showGrid(event, 'match_owner', userText.split(':')[1]);
   if (userText.startsWith('SEL_OWNER_FOR_MAP:')) {
     const ownerInfo = userText.replace('SEL_OWNER_FOR_MAP:', '');
@@ -109,28 +178,24 @@ async function handleEvent(event) {
     return sendConfirmMatch(event, oName, oId, bName, bId);
   }
 
-  // --- 5. CRUD Actions (แก้ไข/ลบ/เปลี่ยนชื่อ) ---
+  // CRUD Actions
   if (userText.startsWith('MANAGE_OWNER:')) return showOwnerActionMenu(event, userText.replace('MANAGE_OWNER:',''));
   if (userText.startsWith('MANAGE_BRANCH:')) return showBranchActionMenu(event, userText.replace('MANAGE_BRANCH:',''));
 
-  // ลบ Owner
   if (userText.startsWith('DELETE_OWNER:')) {
     await supabase.from('branch_owners').delete().eq('owner_line_id', userText.split(':')[1]);
     return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบเจ้าของเรียบร้อย' });
   }
-  // ลบ Branch (เพิ่มใหม่)
   if (userText.startsWith('DELETE_BRANCH:')) {
     await supabase.from('branches').delete().eq('id', userText.split(':')[1]);
     return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบสาขาเรียบร้อย' });
   }
-  // เปลี่ยนชื่อ Owner
   if (userText.startsWith('RENAME_OWNER:')) {
     const [id, newName] = userText.replace('RENAME_OWNER:', '').split('|');
     if (!newName || newName === '[ชื่อใหม่]') return null;
     await supabase.from('branch_owners').update({ owner_name: newName }).eq('owner_line_id', id);
     return client.replyMessage(event.replyToken, { type: 'text', text: `✅ เปลี่ยนชื่อเจ้าของเป็น ${newName}` });
   }
-  // เปลี่ยนชื่อ Branch (เพิ่มใหม่)
   if (userText.startsWith('RENAME_BRANCH:')) {
     const [id, newName] = userText.replace('RENAME_BRANCH:', '').split('|');
     if (!newName || newName === '[ชื่อใหม่]') return null;
@@ -138,7 +203,6 @@ async function handleEvent(event) {
     return client.replyMessage(event.replyToken, { type: 'text', text: `✅ เปลี่ยนชื่อสาขาเป็น ${newName}` });
   }
 
-  // จับคู่ & ยกเลิกคู่
   if (userText.startsWith('DO_MATCH:')) {
     const [oId, bId] = userText.replace('DO_MATCH:', '').split('|');
     await supabase.from('owner_branch_mapping').upsert([{ owner_line_id: oId, branch_id: bId }]);
@@ -151,7 +215,7 @@ async function handleEvent(event) {
   }
 }
 
-// --- ฟังก์ชัน UI & Menus ---
+// --- ฟังก์ชัน UI & Menus (คงของเดิมไว้ทั้งหมด) ---
 
 function sendAdminMenu(event) {
   const flexJson = {
@@ -229,7 +293,6 @@ function showOwnerActionMenu(event, data) {
     type: "flex", altText: "Menu",
     contents: { 
       type: "bubble", 
-      // ลบ size: "sm" ออกจากตรงนี้
       body: { 
         type: "box", layout: "vertical", spacing: "sm", 
         contents: [
@@ -242,14 +305,12 @@ function showOwnerActionMenu(event, data) {
   });
 }
 
-
 function showBranchActionMenu(event, data) {
   const [name, id] = data.split('|');
   return client.replyMessage(event.replyToken, {
     type: "flex", altText: "Menu",
     contents: { 
       type: "bubble", 
-      // ลบ size: "sm" ออกจากตรงนี้เช่นกัน
       body: { 
         type: "box", layout: "vertical", spacing: "sm", 
         contents: [
@@ -261,7 +322,6 @@ function showBranchActionMenu(event, data) {
     }
   });
 }
-
 
 // --- Helper Functions ---
 
@@ -282,7 +342,6 @@ async function handleCreateBranch(event, text) {
   await supabase.from('branches').insert([{ branch_name: name }]);
   return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึกสาขา: ${name}` });
 }
-
 
 function sendAlphabetMenu(event, prefix) {
   const keys = Object.keys(ALPHABET_GROUPS);
