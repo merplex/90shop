@@ -213,7 +213,7 @@ async function sendYearlySummaryReport(event, supabase, client) {
 
   const now = new Date();
   const firstDayOfYear = new Date(now.getFullYear(), 0, 1).toISOString();
-  const { data: transactions } = await supabase.from('machine_transactions').select('amount, created_at, branch_id').in('branch_id', branchIds).gte('created_at', firstDayOfYear);
+  const { data: transactions } = await supabase.from('transactions').select('amount, created_at, branch_id').in('branch_id', branchIds).gte('created_at', firstDayOfYear);
 
   const reportData = {};
   branchIds.forEach(id => { reportData[id] = Array(12).fill(0); });
