@@ -87,56 +87,63 @@ function getBranchSelectMenu(mapping) {
 }
 
 // --- 1. รายงานรายสาขา (ดึงจาก transactions และแสดงผล ว/ส/ด) ---
+// --- 3. ฟังก์ชัน Logic: จัดการรายงานต่อสาขา (แบบใช้ SQL คำนวณ) ---
 async function sendBranchReport(event, branchId, branchName, supabase, client) {
-  const { data: logs, error } = await supabase
-    .from('transactions')
-    .select('*')
-    .eq('branch_id', branchId);
+  
+  // ✅ เรียกใช้ RPC (SQL) ที่เราเพิ่งสร้าง แทนการ select ธรรมดา
+  const { data: stats, error } = await supabase
+    .rpc('get_branch_stats', { query_branch_id: branchId });
 
-  if (error || !logs || logs.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: `ไม่พบข้อมูลธุรกรรมของสาขา ${branchName} ค่ะ` });
+  if (error) {
+    console.error("RPC Error:", error);
+    return client.replyMessage(event.replyToken, { type: 'text', text: 'เกิดข้อผิดพลาดในการคำนวณยอดค่ะ' });
+  }
 
-  const now = new Date();
+  if (!stats || stats.length === 0) {
+    return client.replyMessage(event.replyToken, { type: 'text', text: `ยังไม่มีข้อมูลธุรกรรมสำหรับสาขา ${branchName} ค่ะ` });
+  }
+
+  // เตรียมโครงสร้างข้อมูลเพื่อสร้าง Flex Message
   const machineData = {};
   const branchSummary = {
-    coin: { day: 0, week: 0, month: 0 },
-    bank: { day: 0, week: 0, month: 0 },
-    qr: { day: 0, week: 0, month: 0 }
+    coin: { day: 0, month: 0, all: 0 },
+    bank: { day: 0, month: 0, all: 0 },
+    qr: { day: 0, month: 0, all: 0 }
   };
 
-  logs.forEach(log => {
-    const logDate = new Date(log.created_at);
-    // คำนวณส่วนต่างวัน (ใช้ค่าสัมบูรณ์เพื่อให้ครอบคลุมข้อมูลสุ่มที่อาจจะคลาดเคลื่อน)
-    const diffTime = Math.abs(now - logDate);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    const mId = log.machine_id;
-    const type = log.type;
+  // วนลูปผลลัพธ์ที่ได้จาก SQL (ซึ่งสรุปมาให้แล้ว)
+  stats.forEach(row => {
+    const mId = row.machine_id;
+    // แปลง type เป็นตัวเล็กเผื่อไว้ (เช่น 'Coin' -> 'coin')
+    const type = row.payment_type ? row.payment_type.toLowerCase() : 'coin'; 
 
+    // ถ้ายังไม่มี object ของเครื่องนี้ ให้สร้างใหม่
     if (!machineData[mId]) {
       machineData[mId] = {
-        coin: { day: 0, week: 0, month: 0 },
-        bank: { day: 0, week: 0, month: 0 },
-        qr: { day: 0, week: 0, month: 0 }
+        coin: { day: 0, month: 0, all: 0 },
+        bank: { day: 0, month: 0, all: 0 },
+        qr: { day: 0, month: 0, all: 0 }
       };
     }
 
-    // เก็บสถิติ (ว: 1 วัน / ส: 7 วัน / ด: 30 วัน)
-    if (diffDays <= 1) {
-      machineData[mId][type].day += log.amount;
-      branchSummary[type].day += log.amount;
+    // เอาค่าจาก SQL ใส่ลงไปตรงๆ ได้เลย
+    if (machineData[mId][type]) {
+        machineData[mId][type].day = row.day_total;
+        machineData[mId][type].month = row.month_total;
+        machineData[mId][type].all = row.all_total;
     }
-    if (diffDays <= 7) {
-      machineData[mId][type].week += log.amount;
-      branchSummary[type].week += log.amount;
-    }
-    if (diffDays <= 30) {
-      machineData[mId][type].month += log.amount;
-      branchSummary[type].month += log.amount;
+
+    // บวกยอดรวมสรุปท้ายบิล
+    if (branchSummary[type]) {
+        branchSummary[type].day += row.day_total;
+        branchSummary[type].month += row.month_total;
+        branchSummary[type].all += row.all_total;
     }
   });
 
   const machineRows = [];
-  Object.keys(machineData).forEach((mId, index) => {
+  // เรียงลำดับชื่อเครื่อง A-Z
+  Object.keys(machineData).sort().forEach((mId, index) => {
     const d = machineData[mId];
     if (index > 0) machineRows.push({ type: "separator", margin: "xl" });
     machineRows.push({
@@ -167,7 +174,7 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
         createSummaryRow("💵 ธนบัตรรวม", branchSummary.bank),
         createSummaryRow("📱 QR รวม", branchSummary.qr),
         { type: "separator" },
-        { type: "text", text: "* ว:วันนี้ / ส:7วัน / ด:30วัน", size: "xxs", color: "#aaaaaa" }
+        { type: "text", text: "* ว:24ชม. / ด:30วัน / รวม:ทั้งหมด", size: "xxs", color: "#aaaaaa" }
       ]
     }
   };
@@ -177,6 +184,29 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
     { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }
   ]);
 }
+
+
+// --- แก้ไข Helper: ปรับช่องแสดงผลเป็น วัน / เดือน / รวม ---
+function createSummaryRow(label, data) {
+  return {
+    type: "box", layout: "vertical", spacing: "xs", margin: "sm",
+    contents: [
+      { type: "text", text: label, size: "xs", weight: "bold" },
+      {
+        type: "box", layout: "horizontal",
+        contents: [
+          // ช่อง 1: วัน
+          { type: "text", text: `ว: ${data.day.toLocaleString()}`, size: "xs", color: "#1DB446", flex: 3 },
+          // ช่อง 2: เดือน
+          { type: "text", text: `ด: ${data.month.toLocaleString()}`, size: "xs", color: "#F39C12", align: "center", flex: 3 },
+          // ช่อง 3: รวมทั้งหมด (เด่นๆ)
+          { type: "text", text: `รวม: ${data.all.toLocaleString()}`, size: "xs", color: "#000000", align: "end", weight: "bold", flex: 4 }
+        ]
+      }
+    ]
+  };
+}
+
 
 async function sendYearlySummaryReport(event, supabase, client) {
   try {
