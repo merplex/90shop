@@ -4,6 +4,7 @@ const {
   getReportSelectionMenu, 
   getBranchSelectMenu, 
   handleBranchReportLogic, // <<--- เปรมต้องเช็กว่ามีคำนี้ในบรรทัดที่ 1 ของ index.js หรือยัง
+  sendBranchReport,
   ALPHABET_GROUPS, 
   chunkArray 
 } = require('./menu');
@@ -53,6 +54,14 @@ async function handleEvent(event) {
   // สำหรับ menu.js 
   if (userText === 'REPORT_BRANCH_SELECT') {
     return handleBranchReportLogic(event, supabase, client);
+  }
+  if (event.message.text.startsWith('VIEW_REPORT_ID:')) {
+  // 1. แกะข้อมูลจาก VIEW_REPORT_ID:dd2bf7e4-b23d-4a46-a374-1c3525eb8c88|CC
+    const rawData = event.message.text.replace('VIEW_REPORT_ID:', ''); // เหลือ dd2bf7e4...|CC
+    const [branchId, branchName] = rawData.split('|');
+
+  // 2. เรียกฟังก์ชันแสดงรายงาน (ที่เรา Import มาจาก menu.js)
+    return menu.sendBranchReport(event, branchId, branchName, supabase, client);
   }
 
   if (userText === 'เมนูจัดการ') return sendManageMenu(event);
