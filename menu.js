@@ -182,7 +182,11 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
 async function sendYearlySummaryReport(event, supabase, client) {
   try {
     const userId = event.source.userId;
-    const { data: mapping } = await supabase.from('owner_branch_mapping').select('branch_id, branches(branch_name)').eq('owner_line_id', userId);
+    // 1. ดึงข้อมูลสาขาที่ผูกกับ Owner
+    const { data: mapping } = await supabase
+      .from('owner_branch_mapping')
+      .select('branch_id, branches(branch_name)')
+      .eq('owner_line_id', userId);
     
     if (!mapping || mapping.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาค่ะ' });
 
@@ -190,45 +194,51 @@ async function sendYearlySummaryReport(event, supabase, client) {
     const branchMap = {};
     mapping.forEach(m => branchMap[m.branch_id] = m.branches.branch_name);
 
-    const now = new Date();
-    const startOfLastYear = new Date(now.getFullYear() - 1, 0, 1).toISOString();
-
-    const { data: transactions } = await supabase
+    // 2. ดึงข้อมูล "ทั้งหมด" ของปี 2025 และ 2026 มาเลย (กวาดกว้างๆ)
+    const { data: transactions, error } = await supabase
       .from('transactions')
       .select('amount, created_at, branch_id')
       .in('branch_id', branchIds)
-      .gte('created_at', startOfLastYear);
+      .gte('created_at', '2025-01-01T00:00:00Z');
+
+    if (error) {
+      console.error("Supabase Error:", error);
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'เกิดข้อผิดพลาดในการดึงข้อมูลค่ะ' });
+    }
 
     const branchBubbles = Object.keys(branchMap).map(id => {
-      let totalDisplayed = 0;
+      let totalAll = 0;
+      const monthlyDataMap = {}; // ใช้ Map เก็บยอดตามเดือน [0-11]
+
+      // ประมวลผลข้อมูล: เอาทุกรายการที่มีมาบวกรวมกันแยกตามเดือน (เอาปีล่าสุดที่มีข้อมูลของเดือนนั้น)
+      (transactions || []).filter(t => t.branch_id === id).forEach(t => {
+        const d = new Date(t.created_at);
+        const mIdx = d.getMonth();
+        const year = d.getFullYear();
+
+        if (!monthlyDataMap[mIdx] || year >= monthlyDataMap[mIdx].year) {
+           if (!monthlyDataMap[mIdx] || year > monthlyDataMap[mIdx].year) {
+             monthlyDataMap[mIdx] = { amount: t.amount, year: year };
+           } else {
+             monthlyDataMap[mIdx].amount += t.amount;
+           }
+        }
+      });
+
       const monthlyRows = [];
-
-      for (let mIdx = 0; mIdx <= 11; mIdx++) {
-        // กรองหาธุรกรรมของเดือนนั้นๆ (เลือกปีล่าสุดที่มีข้อมูล)
-        const monthTransactions = (transactions || [])
-          .filter(t => t.branch_id === id && new Date(t.created_at).getMonth() === mIdx)
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-        if (monthTransactions.length > 0) {
-          const latestYear = new Date(monthTransactions[0].created_at).getFullYear();
-          // รวมยอดเงินทั้งหมดของเดือนนั้นในปีนั้น
-          const monthlySum = monthTransactions
-            .filter(t => new Date(t.created_at).getFullYear() === latestYear)
-            .reduce((sum, t) => sum + t.amount, 0);
-
-          totalDisplayed += monthlySum;
+      // วนลูปโชว์ครบ 12 เดือน (ม.ค. - ธ.ค.)
+      for (let i = 0; i < 12; i++) {
+        const hasData = monthlyDataMap[i];
+        const amount = hasData ? hasData.amount : 0;
+        const yearStr = hasData ? ` (${hasData.year + 543})` : ` (${new Date().getFullYear() + 543})`;
+        
+        // บังคับโชว์ทุกเดือนที่มีข้อมูล หรือเดือนที่ผ่านมาแล้วในปีปัจจุบัน
+        if (amount > 0 || i <= new Date().getMonth()) {
+          totalAll += amount;
           monthlyRows.push({
             type: "box", layout: "horizontal", contents: [
-              { type: "text", text: new Date(0, mIdx).toLocaleString('th-TH', { month: 'short' }) + ` (${latestYear + 543})`, size: "sm", color: "#888888" },
-              { type: "text", text: `฿${monthlySum.toLocaleString()}`, align: "end", size: "sm", weight: "bold" }
-            ]
-          });
-        } else if (mIdx <= now.getMonth()) {
-          // ถ้าเดือนที่ผ่านมาแล้วยังไม่มีข้อมูล ให้โชว์เป็น ฿0 (ปีปัจจุบัน)
-          monthlyRows.push({
-            type: "box", layout: "horizontal", contents: [
-              { type: "text", text: new Date(0, mIdx).toLocaleString('th-TH', { month: 'short' }) + ` (${now.getFullYear() + 543})`, size: "sm", color: "#888888" },
-              { type: "text", text: `฿0`, align: "end", size: "sm", color: "#cccccc" }
+              { type: "text", text: new Date(0, i).toLocaleString('th-TH', { month: 'short' }) + yearStr, size: "sm", color: "#888888" },
+              { type: "text", text: `฿${amount.toLocaleString()}`, align: "end", size: "sm", weight: amount > 0 ? "bold" : "regular", color: amount > 0 ? "#000000" : "#cccccc" }
             ]
           });
         }
@@ -240,15 +250,15 @@ async function sendYearlySummaryReport(event, supabase, client) {
         body: {
           type: "box", layout: "vertical", spacing: "sm",
           contents: [
-            { type: "text", text: "สรุปยอดรายเดือน (Latest Month)", size: "xs", weight: "bold", color: "#aaaaaa" },
+            { type: "text", text: "สรุปยอดรายเดือนล่าสุด", size: "xs", weight: "bold", color: "#aaaaaa" },
             { type: "separator", margin: "sm" },
             ...monthlyRows,
             { type: "separator", margin: "md" },
             {
               type: "box", layout: "horizontal", margin: "md",
               contents: [
-                { type: "text", text: "รวมตามรายการข้างบน", weight: "bold", size: "sm" },
-                { type: "text", text: `฿${totalDisplayed.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }
+                { type: "text", text: "ยอดรวม", weight: "bold", size: "sm" },
+                { type: "text", text: `฿${totalAll.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }
               ]
             }
           ]
@@ -258,11 +268,14 @@ async function sendYearlySummaryReport(event, supabase, client) {
 
     return client.replyMessage(event.replyToken, {
       type: "flex",
-      altText: "รายงานสรุปรายปี",
+      altText: "รายงานรายปี",
       contents: { type: "carousel", contents: branchBubbles.slice(0, 10) }
     });
-  } catch (err) { console.error(err); }
+  } catch (err) {
+    console.error("Global Error:", err);
+  }
 }
+
 
 
 function createSummaryRow(label, data) {
