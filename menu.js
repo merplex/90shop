@@ -85,10 +85,34 @@ function chunkArray(arr, s) {
   for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); 
   return res; 
 }
+// menu.js
 
+// ฟังก์ชันสร้างเมนูเลือกสาขา (กรณีเจ้าของคนนั้นมีหลายสาขา)
+function getBranchSelectMenu(mapping) {
+  return {
+    type: "bubble",
+    body: {
+      type: "box", layout: "vertical", spacing: "sm",
+      contents: [
+        { type: "text", text: "เลือกสาขาที่ต้องการดู", weight: "bold", size: "lg" },
+        ...mapping.map(m => ({
+          type: "button", style: "secondary", height: "sm",
+          action: { 
+            type: "message", 
+            label: m.branches.branch_name, 
+            text: `VIEW_REPORT_ID:${m.branch_id}|${m.branches.branch_name}` 
+          }
+        }))
+      ]
+    }
+  };
+}
+
+// แก้ไข module.exports ท้ายไฟล์ menu.js
 module.exports = {
   getAdminMenu,
   getReportSelectionMenu,
+  getBranchSelectMenu, // เพิ่มอันนี้
   ALPHABET_GROUPS,
   chunkArray
 };
