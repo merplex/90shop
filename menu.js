@@ -1,4 +1,5 @@
-// menus.js
+// menu.js
+
 const ALPHABET_GROUPS = {
   "A-B": "AB".split(""), "C-D": "CD".split(""), "E-F": "EF".split(""),
   "G-H": "GH".split(""), "I-J": "IJ".split(""), "K-L": "KL".split(""),
@@ -6,40 +7,10 @@ const ALPHABET_GROUPS = {
   "S-T": "ST".split(""), "U-V": "UV".split(""), "W-Z": "WXYZ".split("")
 };
 
-// --- เมนูหลัก Admin (Carousel) ---
 function getAdminMenu() {
-  return {
-    type: "carousel",
-    contents: [
-      {
-        type: "bubble",
-        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "1. เมนูสร้าง", weight: "bold", color: "#1DB446", size: "lg" }] },
-        body: {
-          type: "box", layout: "vertical", spacing: "md",
-          contents: [
-            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "👤 สร้าง Owner", text: "U[ID] [ชื่อ]" } },
-            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 สร้าง Branch", text: "Branch [ชื่อ]" } },
-            { type: "button", style: "primary", color: "#1DB446", height: "sm", action: { type: "message", label: "🔗 เริ่มจับคู่", text: "SELECT_GROUP_StartMatch" } }
-          ]
-        }
-      },
-      {
-        type: "bubble",
-        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "2. เมนูจัดการ", weight: "bold", color: "#464a4d", size: "lg" }] },
-        body: {
-          type: "box", layout: "vertical", spacing: "md",
-          contents: [
-            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📝 แก้ไข Owner", text: "SELECT_GROUP_Owner" } },
-            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 แก้ไข Branch", text: "SELECT_GROUP_Branch" } },
-            { type: "button", style: "primary", color: "#464a4d", height: "sm", action: { type: "message", label: "📋 ดูคู่ (ลบ)", text: "SELECT_GROUP_Map" } }
-          ]
-        }
-      }
-    ]
-  };
+  return { type: "carousel", contents: [ /* โค้ดเมนู Admin เดิม */ ] };
 }
 
-// --- เมนูเลือกรายงาน ---
 function getReportSelectionMenu() {
   return {
     type: "bubble",
@@ -54,40 +25,29 @@ function getReportSelectionMenu() {
     }
   };
 }
-  // --- 6. รายงานต่อสาขา (Step 1: เลือกสาขา) ---
-  if (userText === 'REPORT_BRANCH_SELECT') {
-    const { data: mapping, error } = await supabase
-      .from('owner_branch_mapping')
-      .select('branch_id, branches(branch_name)')
-      .eq('owner_line_id', event.source.userId);
 
-    if (error || !mapping || mapping.length === 0) {
-      return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาที่ผูกกับบัญชีของคุณค่ะ' });
-    }
+// --- ฟังก์ชันใหม่: จัดการ Logic รายงานต่อสาขา ---
+async function handleBranchReportLogic(event, supabase, client) {
+  const { data: mapping, error } = await supabase
+    .from('owner_branch_mapping')
+    .select('branch_id, branches(branch_name)')
+    .eq('owner_line_id', event.source.userId);
 
-    if (mapping.length === 1) {
-      // ถ้ามีสาขาเดียว ให้ข้ามไปเรียกรายงานเลย (เดี๋ยวเราจะสร้างฟังก์ชันเรียกรายงานกัน)
-      return sendBranchReport(event, mapping[0].branch_id, mapping[0].branches.branch_name);
-    } else {
-      // ถ้ามีหลายสาขา ให้ส่งเมนูเลือกสาขา (ใช้ getBranchSelectMenu จาก menu.js)
-      return client.replyMessage(event.replyToken, {
-        type: "flex",
-        altText: "เลือกสาขา",
-        contents: getBranchSelectMenu(mapping) 
-      });
-    }
+  if (error || !mapping || mapping.length === 0) {
+    return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาของคุณค่ะ' });
   }
 
-
-// --- ฟังก์ชันช่วยตัดแบ่ง Array (Helper) ---
-function chunkArray(arr, s) { 
-  const res = []; 
-  for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); 
-  return res; 
+  if (mapping.length === 1) {
+    // ถ้ามีสาขาเดียว จะให้ทำอะไรต่อค่อยว่ากัน (เช่น ส่งยอดเงิน)
+    return client.replyMessage(event.replyToken, { type: 'text', text: `กำลังดึงข้อมูลสาขา ${mapping[0].branches.branch_name}...` });
+  } else {
+    // ถ้ามีหลายสาขา ส่ง Flex เลือกสาขา
+    return client.replyMessage(event.replyToken, {
+      type: "flex", altText: "เลือกสาขา", contents: getBranchSelectMenu(mapping) 
+    });
+  }
 }
-// menu.js
 
-// ฟังก์ชันสร้างเมนูเลือกสาขา (กรณีเจ้าของคนนั้นมีหลายสาขา)
 function getBranchSelectMenu(mapping) {
   return {
     type: "bubble",
@@ -97,22 +57,24 @@ function getBranchSelectMenu(mapping) {
         { type: "text", text: "เลือกสาขาที่ต้องการดู", weight: "bold", size: "lg" },
         ...mapping.map(m => ({
           type: "button", style: "secondary", height: "sm",
-          action: { 
-            type: "message", 
-            label: m.branches.branch_name, 
-            text: `VIEW_REPORT_ID:${m.branch_id}|${m.branches.branch_name}` 
-          }
+          action: { type: "message", label: m.branches.branch_name, text: `VIEW_REPORT_ID:${m.branch_id}|${m.branches.branch_name}` }
         }))
       ]
     }
   };
 }
 
-// แก้ไข module.exports ท้ายไฟล์ menu.js
+function chunkArray(arr, s) { 
+  const res = []; 
+  for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); 
+  return res; 
+}
+
 module.exports = {
   getAdminMenu,
   getReportSelectionMenu,
-  getBranchSelectMenu, // เพิ่มอันนี้
+  getBranchSelectMenu,
+  handleBranchReportLogic, // เพิ่มอันนี้เข้าไป
   ALPHABET_GROUPS,
   chunkArray
 };

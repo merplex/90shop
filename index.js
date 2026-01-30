@@ -42,6 +42,11 @@ async function handleEvent(event) {
       contents: getReportSelectionMenu()
     });
   }
+  // สำหรับ menu.js 
+  if (userText === 'REPORT_BRANCH_SELECT') {
+    return handleBranchReportLogic(event, supabase, client);
+  }
+
   if (userText === 'เมนูจัดการ') return sendManageMenu(event);
 
   // --- 2. Create Commands ---
