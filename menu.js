@@ -188,39 +188,36 @@ async function sendYearlySummaryReport(event, supabase, client) {
     const branchMap = {};
     mapping.forEach(m => branchMap[m.branch_id] = m.branches.branch_name);
 
-    // 1. กวาดข้อมูลทั้งหมดตั้งแต่ต้นปี 2025 มาเลยค่ะ
+    const now = new Date();
+    const startOfPeriod = new Date(now.getFullYear() - 1, now.getMonth(), 1).toISOString();
+
     const { data: transactions } = await supabase
       .from('transactions')
       .select('amount, created_at, branch_id')
       .in('branch_id', branchIds)
-      .gte('created_at', '2025-01-01T00:00:00Z');
+      .gte('created_at', startOfPeriod);
 
     const branchBubbles = Object.keys(branchMap).map(id => {
-      let totalAllDisplayed = 0;
+      let totalAll = 0;
       const monthlyRows = [];
-      const now = new Date();
 
-      // วนลูปครบ 12 เดือน (ม.ค. - ธ.ค.)
-      for (let mIdx = 0; mIdx <= 11; mIdx++) {
-        // 2. กรองหา "ทุกรายการ" ของเดือนนั้นๆ ไม่ว่าจะปี 2025 หรือ 2026
-        const monthData = (transactions || []).filter(t => t.branch_id === id && new Date(t.created_at).getMonth() === mIdx);
-        
-        // 3. บวกรวมยอดเงินทั้งหมดของเดือนนั้น (จากทุกปีที่มีข้อมูล)
-        const sumAmount = monthData.reduce((sum, t) => sum + t.amount, 0);
+      // วนลูป 12 เดือนถอยหลัง
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const mIdx = d.getMonth();
+        const year = d.getFullYear();
 
-        // 4. ถ้ามีเงิน (เช่น พฤษภาคม 2025 ในรูปของเปรม) หรือเป็นเดือนที่ผ่านมาแล้วในปีนี้ ให้โชว์ออกมา
-        if (sumAmount > 0 || mIdx <= now.getMonth()) {
-          totalAllDisplayed += sumAmount;
-          
-          // หาปีล่าสุดที่มีข้อมูลในเดือนนั้นมาแสดงในวงเล็บ
-          const latestYear = monthData.length > 0 
-            ? new Date(monthData.sort((a,b) => new Date(b.created_at) - new Date(a.created_at))[0].created_at).getFullYear() 
-            : now.getFullYear();
+        // ✅ แก้ไข: บวกรวมยอดเงินทั้งหมดของเดือนนั้น (Sum)
+        const monthAmount = (transactions || [])
+          .filter(t => t.branch_id === id && new Date(t.created_at).getMonth() === mIdx && new Date(t.created_at).getFullYear() === year)
+          .reduce((sum, t) => sum + t.amount, 0);
 
+        if (monthAmount > 0 || i === 0) {
+          totalAll += monthAmount;
           monthlyRows.push({
             type: "box", layout: "horizontal", contents: [
-              { type: "text", text: new Date(0, mIdx).toLocaleString('th-TH', { month: 'short' }) + ` (${latestYear + 543})`, size: "sm", color: "#888888" },
-              { type: "text", text: `฿${sumAmount.toLocaleString()}`, align: "end", size: "sm", weight: sumAmount > 0 ? "bold" : "regular" }
+              { type: "text", text: d.toLocaleString('th-TH', { month: 'short' }) + ` (${year + 543})`, size: "sm", color: "#888888" },
+              { type: "text", text: `฿${monthAmount.toLocaleString()}`, align: "end", size: "sm", weight: "bold" }
             ]
           });
         }
@@ -232,15 +229,15 @@ async function sendYearlySummaryReport(event, supabase, client) {
         body: {
           type: "box", layout: "vertical", spacing: "sm",
           contents: [
-            { type: "text", text: "สรุปยอดรายเดือนรวมทุกปี", size: "xs", weight: "bold", color: "#aaaaaa" },
+            { type: "text", text: "สรุปยอดรายเดือนรวมทุกเครื่อง", size: "xs", weight: "bold", color: "#aaaaaa" },
             { type: "separator", margin: "sm" },
             ...monthlyRows,
             { type: "separator", margin: "md" },
             {
               type: "box", layout: "horizontal", margin: "md",
               contents: [
-                { type: "text", text: "ยอดรวมรายงานนี้", weight: "bold", size: "sm" },
-                { type: "text", text: `฿${totalAllDisplayed.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }
+                { type: "text", text: "รวมยอดที่แสดง", weight: "bold", size: "sm" },
+                { type: "text", text: `฿${totalAll.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }
               ]
             }
           ]
@@ -249,11 +246,13 @@ async function sendYearlySummaryReport(event, supabase, client) {
     });
 
     return client.replyMessage(event.replyToken, {
-      type: "flex", altText: "รายงานรายปี",
+      type: "flex",
+      altText: "รายงานรายปี",
       contents: { type: "carousel", contents: branchBubbles.slice(0, 10) }
     });
   } catch (err) { console.error(err); }
 }
+
 
 
 function createSummaryRow(label, data) {
