@@ -267,7 +267,6 @@ function sendConfirmMatch(event, oName, oId, bName, bId) {
   return client.replyMessage(event.replyToken, { type: "flex", altText: "Confirm", contents: flex });
 }
 
-function chunkArray(arr, s) { const res = []; for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); return res; }
 function sendManageMenu(event) { return client.replyMessage(event.replyToken, { type: 'text', text: 'พิมพ์ admin เพื่อดูเมนูทั้งหมดค่ะ' }); }
 
 const PORT = process.env.PORT || 8080;
