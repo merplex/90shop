@@ -69,11 +69,16 @@ async function handleBranchReportLogic(event, supabase, client) {
     }
 
     if (mapping.length === 1) {
-      // ส่งยอดเงินทันทีถ้ามีสาขาเดียว (รอสร้างฟังก์ชัน sendBranchReport ใน index.js)
-      return client.replyMessage(event.replyToken, { 
+  // 1. ส่งข้อความทักทายก่อน (ใช้ await แทน return เพื่อให้โค้ดทำงานต่อได้)
+      await client.replyMessage(event.replyToken, { 
         type: 'text', 
         text: `📊 กำลังดึงข้อมูลรายงานของสาขา: ${mapping[0].branches.branch_name}` 
       });
+
+  // 2. เรียกฟังก์ชันส่งรายงานตามหลังมา
+      return sendBranchReport(event, mapping[0].branch_id, mapping[0].branches.branch_name, supabase, client);
+    }
+
     } else {
       // ส่ง Flex เลือกสาขาถ้าคุมหลายที่
       return client.replyMessage(event.replyToken, {
