@@ -59,6 +59,8 @@ function getReportSelectionMenu() {
 // --- 3. ฟังก์ชัน Logic: จัดการรายงานต่อสาขา ---
 // menu.js
 
+// menu.js
+
 async function handleBranchReportLogic(event, supabase, client) {
   try {
     const { data: mapping, error } = await supabase
@@ -70,19 +72,24 @@ async function handleBranchReportLogic(event, supabase, client) {
       return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาที่ผูกกับบัญชีของคุณค่ะ' });
     }
 
-    // menu.js (ใน handleBranchReportLogic)
-
+    // กรณีมีแค่ 1 สาขา -> ส่งรายงานทันที
     if (mapping.length === 1) {
-      // ตัด await และข้อความ text ทิ้งไปเลย เพื่อไม่ให้แย่งใช้ replyToken
-      // เรียกฟังก์ชันส่ง Flex รายงานโดยตรง
       return sendBranchReport(event, mapping[0].branch_id, mapping[0].branches.branch_name, supabase, client);
+    } 
+    // ✅ เพิ่มตรงนี้: กรณีมีหลายสาขา (mapping.length > 1)
+    else {
+      return client.replyMessage(event.replyToken, {
+        type: "flex", 
+        altText: "เลือกสาขา", 
+        contents: getBranchSelectMenu(mapping) // เรียกเมนูเลือกสาขาที่เปรมมีอยู่แล้ว
+      });
     }
 
   } catch (err) {
     console.error(err);
-    // ไม่ต้องส่ง replyMessage ใน catch ถ้ากังวลเรื่อง Token ซ้ำ
   }
 }
+
 
 // --- 4. เมนูเลือกสาขา (กรณีคุมหลายสาขา) ---
 function getBranchSelectMenu(mapping) {
