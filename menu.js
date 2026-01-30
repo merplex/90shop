@@ -7,10 +7,40 @@ const ALPHABET_GROUPS = {
   "S-T": "ST".split(""), "U-V": "UV".split(""), "W-Z": "WXYZ".split("")
 };
 
+// --- 1. เมนูหลัก Admin (Carousel) ---
 function getAdminMenu() {
-  return { type: "carousel", contents: [ /* โค้ดเมนู Admin เดิม */ ] };
+  return {
+    type: "carousel",
+    contents: [
+      {
+        type: "bubble",
+        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "1. เมนูสร้าง", weight: "bold", color: "#1DB446", size: "lg" }] },
+        body: {
+          type: "box", layout: "vertical", spacing: "md",
+          contents: [
+            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "👤 สร้าง Owner", text: "U[ID] [ชื่อ]" } },
+            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 สร้าง Branch", text: "Branch [ชื่อ]" } },
+            { type: "button", style: "primary", color: "#1DB446", height: "sm", action: { type: "message", label: "🔗 เริ่มจับคู่", text: "SELECT_GROUP_StartMatch" } }
+          ]
+        }
+      },
+      {
+        type: "bubble",
+        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "2. เมนูจัดการ", weight: "bold", color: "#464a4d", size: "lg" }] },
+        body: {
+          type: "box", layout: "vertical", spacing: "md",
+          contents: [
+            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📝 แก้ไข Owner", text: "SELECT_GROUP_Owner" } },
+            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 แก้ไข Branch", text: "SELECT_GROUP_Branch" } },
+            { type: "button", style: "primary", color: "#464a4d", height: "sm", action: { type: "message", label: "📋 ดูคู่ (ลบ)", text: "SELECT_GROUP_Map" } }
+          ]
+        }
+      }
+    ]
+  };
 }
 
+// --- 2. เมนูเลือกรายงาน (จาก Rich Menu) ---
 function getReportSelectionMenu() {
   return {
     type: "bubble",
@@ -26,28 +56,39 @@ function getReportSelectionMenu() {
   };
 }
 
-// --- ฟังก์ชันใหม่: จัดการ Logic รายงานต่อสาขา ---
+// --- 3. ฟังก์ชัน Logic: จัดการรายงานต่อสาขา ---
 async function handleBranchReportLogic(event, supabase, client) {
-  const { data: mapping, error } = await supabase
-    .from('owner_branch_mapping')
-    .select('branch_id, branches(branch_name)')
-    .eq('owner_line_id', event.source.userId);
+  try {
+    const { data: mapping, error } = await supabase
+      .from('owner_branch_mapping')
+      .select('branch_id, branches(branch_name)')
+      .eq('owner_line_id', event.source.userId);
 
-  if (error || !mapping || mapping.length === 0) {
-    return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาของคุณค่ะ' });
-  }
+    if (error || !mapping || mapping.length === 0) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาที่ผูกกับบัญชีของคุณค่ะ' });
+    }
 
-  if (mapping.length === 1) {
-    // ถ้ามีสาขาเดียว จะให้ทำอะไรต่อค่อยว่ากัน (เช่น ส่งยอดเงิน)
-    return client.replyMessage(event.replyToken, { type: 'text', text: `กำลังดึงข้อมูลสาขา ${mapping[0].branches.branch_name}...` });
-  } else {
-    // ถ้ามีหลายสาขา ส่ง Flex เลือกสาขา
-    return client.replyMessage(event.replyToken, {
-      type: "flex", altText: "เลือกสาขา", contents: getBranchSelectMenu(mapping) 
-    });
+    if (mapping.length === 1) {
+      // ส่งยอดเงินทันทีถ้ามีสาขาเดียว (รอสร้างฟังก์ชัน sendBranchReport ใน index.js)
+      return client.replyMessage(event.replyToken, { 
+        type: 'text', 
+        text: `📊 กำลังดึงข้อมูลรายงานของสาขา: ${mapping[0].branches.branch_name}` 
+      });
+    } else {
+      // ส่ง Flex เลือกสาขาถ้าคุมหลายที่
+      return client.replyMessage(event.replyToken, {
+        type: "flex", 
+        altText: "เลือกสาขา", 
+        contents: getBranchSelectMenu(mapping) 
+      });
+    }
+  } catch (err) {
+    console.error(err);
+    return client.replyMessage(event.replyToken, { type: 'text', text: 'เกิดข้อผิดพลาดในการดึงข้อมูลค่ะ' });
   }
 }
 
+// --- 4. เมนูเลือกสาขา (กรณีคุมหลายสาขา) ---
 function getBranchSelectMenu(mapping) {
   return {
     type: "bubble",
@@ -57,24 +98,30 @@ function getBranchSelectMenu(mapping) {
         { type: "text", text: "เลือกสาขาที่ต้องการดู", weight: "bold", size: "lg" },
         ...mapping.map(m => ({
           type: "button", style: "secondary", height: "sm",
-          action: { type: "message", label: m.branches.branch_name, text: `VIEW_REPORT_ID:${m.branch_id}|${m.branches.branch_name}` }
+          action: { 
+            type: "message", 
+            label: m.branches.branch_name, 
+            text: `VIEW_REPORT_ID:${m.branch_id}|${m.branches.branch_name}` 
+          }
         }))
       ]
     }
   };
 }
 
+// --- 5. Helper Function ---
 function chunkArray(arr, s) { 
   const res = []; 
   for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); 
   return res; 
 }
 
+// --- 6. Export ---
 module.exports = {
   getAdminMenu,
   getReportSelectionMenu,
   getBranchSelectMenu,
-  handleBranchReportLogic, // เพิ่มอันนี้เข้าไป
+  handleBranchReportLogic,
   ALPHABET_GROUPS,
   chunkArray
 };
