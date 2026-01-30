@@ -1,4 +1,4 @@
-// menu.js
+// menu.js - ฉบับสมบูรณ์ (SQL + All Time)
 const ALPHABET_GROUPS = {
   "A-B": "AB".split(""), "C-D": "CD".split(""), "E-F": "EF".split(""),
   "G-H": "GH".split(""), "I-J": "IJ".split(""), "K-L": "KL".split(""),
@@ -86,13 +86,9 @@ function getBranchSelectMenu(mapping) {
   };
 }
 
-// --- 1. รายงานรายสาขา (ดึงจาก transactions และแสดงผล ว/ส/ด) ---
-// --- 3. ฟังก์ชัน Logic: จัดการรายงานต่อสาขา (แบบใช้ SQL คำนวณ) ---
+// --- ฟังก์ชันรายงานรายสาขา (ใช้ SQL get_branch_stats) ---
 async function sendBranchReport(event, branchId, branchName, supabase, client) {
-  
-  // ✅ เรียกใช้ RPC (SQL) ที่เราเพิ่งสร้าง แทนการ select ธรรมดา
-  const { data: stats, error } = await supabase
-    .rpc('get_branch_stats', { query_branch_id: branchId });
+  const { data: stats, error } = await supabase.rpc('get_branch_stats', { query_branch_id: branchId });
 
   if (error) {
     console.error("RPC Error:", error);
@@ -103,7 +99,6 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
     return client.replyMessage(event.replyToken, { type: 'text', text: `ยังไม่มีข้อมูลธุรกรรมสำหรับสาขา ${branchName} ค่ะ` });
   }
 
-  // เตรียมโครงสร้างข้อมูลเพื่อสร้าง Flex Message
   const machineData = {};
   const branchSummary = {
     coin: { day: 0, month: 0, all: 0 },
@@ -111,13 +106,10 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
     qr: { day: 0, month: 0, all: 0 }
   };
 
-  // วนลูปผลลัพธ์ที่ได้จาก SQL (ซึ่งสรุปมาให้แล้ว)
   stats.forEach(row => {
     const mId = row.machine_id;
-    // แปลง type เป็นตัวเล็กเผื่อไว้ (เช่น 'Coin' -> 'coin')
-    const type = row.payment_type ? row.payment_type.toLowerCase() : 'coin'; 
+    const type = row.payment_type ? row.payment_type.toLowerCase() : 'coin';
 
-    // ถ้ายังไม่มี object ของเครื่องนี้ ให้สร้างใหม่
     if (!machineData[mId]) {
       machineData[mId] = {
         coin: { day: 0, month: 0, all: 0 },
@@ -126,14 +118,12 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
       };
     }
 
-    // เอาค่าจาก SQL ใส่ลงไปตรงๆ ได้เลย
     if (machineData[mId][type]) {
         machineData[mId][type].day = row.day_total;
         machineData[mId][type].month = row.month_total;
         machineData[mId][type].all = row.all_total;
     }
 
-    // บวกยอดรวมสรุปท้ายบิล
     if (branchSummary[type]) {
         branchSummary[type].day += row.day_total;
         branchSummary[type].month += row.month_total;
@@ -142,7 +132,6 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
   });
 
   const machineRows = [];
-  // เรียงลำดับชื่อเครื่อง A-Z
   Object.keys(machineData).sort().forEach((mId, index) => {
     const d = machineData[mId];
     if (index > 0) machineRows.push({ type: "separator", margin: "xl" });
@@ -179,42 +168,14 @@ async function sendBranchReport(event, branchId, branchName, supabase, client) {
     }
   };
 
-  return client.replyMessage(event.replyToken, [
-    { type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines },
-    { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }
-  ]);
+  return client.replyMessage(event.replyToken, [{ type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines }, { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }]);
 }
 
-
-// --- แก้ไข Helper: ปรับช่องแสดงผลเป็น วัน / เดือน / รวม ---
-function createSummaryRow(label, data) {
-  return {
-    type: "box", layout: "vertical", spacing: "xs", margin: "sm",
-    contents: [
-      { type: "text", text: label, size: "xs", weight: "bold" },
-      {
-        type: "box", layout: "horizontal",
-        contents: [
-          // ช่อง 1: วัน
-          { type: "text", text: `ว: ${data.day.toLocaleString()}`, size: "xs", color: "#1DB446", flex: 3 },
-          // ช่อง 2: เดือน
-          { type: "text", text: `ด: ${data.month.toLocaleString()}`, size: "xs", color: "#F39C12", align: "center", flex: 3 },
-          // ช่อง 3: รวมทั้งหมด (เด่นๆ)
-          { type: "text", text: `รวม: ${data.all.toLocaleString()}`, size: "xs", color: "#000000", align: "end", weight: "bold", flex: 4 }
-        ]
-      }
-    ]
-  };
-}
-
-
+// --- ฟังก์ชันรายงานรายเดือน (ใช้ SQL get_owner_yearly_stats) ---
 async function sendYearlySummaryReport(event, supabase, client) {
   try {
     const userId = event.source.userId;
-
-    // ✅ เรียกใช้ Function ที่เราสร้างใน Supabase (เร็วมาก ไม่กิน RAM)
-    const { data: stats, error } = await supabase
-      .rpc('get_owner_yearly_stats', { owner_uuid: userId });
+    const { data: stats, error } = await supabase.rpc('get_owner_yearly_stats', { owner_uuid: userId });
 
     if (error) {
       console.error("RPC Error:", error);
@@ -225,14 +186,10 @@ async function sendYearlySummaryReport(event, supabase, client) {
       return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลธุรกรรมค่ะ' });
     }
 
-    // จัดกลุ่มข้อมูลตามสาขา
     const branchMap = {};
     stats.forEach(item => {
       if (!branchMap[item.branch_id]) {
-        branchMap[item.branch_id] = {
-          name: item.branch_name,
-          data: []
-        };
+        branchMap[item.branch_id] = { name: item.branch_name, data: [] };
       }
       branchMap[item.branch_id].data.push(item);
     });
@@ -246,12 +203,8 @@ async function sendYearlySummaryReport(event, supabase, client) {
       let totalAll = 0;
       const monthlyRows = [];
 
-      // วนลูป 12 เดือน (0-11)
       for (let mIdx = 0; mIdx <= 11; mIdx++) {
-        // Logic เดิม: เดือนปัจจุบันหรือน้อยกว่าใช้ปีนี้, เดือนอนาคตใช้ปีที่แล้ว
         const targetYear = (mIdx <= now.getMonth()) ? currentYear : lastYear;
-        
-        // หาข้อมูลที่ Database สรุปมาให้แล้ว (ไม่ต้องบวกเองแล้ว!)
         const match = branch.data.find(d => d.month === (mIdx + 1) && d.year === targetYear);
         const amount = match ? match.total_amount : 0;
 
@@ -291,16 +244,26 @@ async function sendYearlySummaryReport(event, supabase, client) {
       };
     });
 
-    return client.replyMessage(event.replyToken, {
-      type: "flex", altText: "รายงานรายปี",
-      contents: { type: "carousel", contents: branchBubbles.slice(0, 10) }
-    });
+    return client.replyMessage(event.replyToken, { type: "flex", altText: "รายงานรายปี", contents: { type: "carousel", contents: branchBubbles.slice(0, 10) } });
   } catch (err) { console.error(err); }
 }
 
-
+// --- Helper สร้างแถว (ใช้ day, month, all) ---
 function createSummaryRow(label, data) {
-  return { type: "box", layout: "vertical", spacing: "xs", margin: "sm", contents: [{ type: "text", text: label, size: "xs", weight: "bold" }, { type: "box", layout: "horizontal", contents: [{ type: "text", text: `ว: ${data.day.toLocaleString()}`, size: "xs", color: "#1DB446" }, { type: "text", text: `ส: ${data.week.toLocaleString()}`, size: "xs", color: "#F39C12", align: "center" }, { type: "text", text: `ด: ${data.month.toLocaleString()}`, size: "xs", align: "end" }] }] };
+  return {
+    type: "box", layout: "vertical", spacing: "xs", margin: "sm",
+    contents: [
+      { type: "text", text: label, size: "xs", weight: "bold" },
+      {
+        type: "box", layout: "horizontal",
+        contents: [
+          { type: "text", text: `ว: ${data.day.toLocaleString()}`, size: "xs", color: "#1DB446", flex: 3 },
+          { type: "text", text: `ด: ${data.month.toLocaleString()}`, size: "xs", color: "#F39C12", align: "center", flex: 3 },
+          { type: "text", text: `รวม: ${data.all.toLocaleString()}`, size: "xs", color: "#000000", align: "end", weight: "bold", flex: 4 }
+        ]
+      }
+    ]
+  };
 }
 
 function chunkArray(arr, s) { const res = []; for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); return res; }
