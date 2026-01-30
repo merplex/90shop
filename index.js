@@ -14,13 +14,6 @@ const client = new line.Client(config);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const app = express();
 
-const ALPHABET_GROUPS = {
-  "A-B": "AB".split(""), "C-D": "CD".split(""), "E-F": "EF".split(""),
-  "G-H": "GH".split(""), "I-J": "IJ".split(""), "K-L": "KL".split(""),
-  "M-N": "MN".split(""), "O-P": "OP".split(""), "Q-R": "QR".split(""),
-  "S-T": "ST".split(""), "U-V": "UV".split(""), "W-Z": "WXYZ".split("")
-};
-
 app.post('/webhook', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
 });
