@@ -276,31 +276,81 @@ async function sendMultiMachineSelector(event, branchId, branchName, selectedIds
 }
 
 async function sendComparisonReport(event, idsStr, dateStr, pool, client) {
-  const machineIds = idsStr.split(',');
-  const startTime = `${dateStr} 00:00:00`;
-  const endTime = `${dateStr} 23:59:59`;
-  
-  const res = await pool.query(
-    'SELECT machine_id, SUM(amount) as total FROM transactions WHERE machine_id = ANY($1) AND created_at BETWEEN $2 AND $3 GROUP BY machine_id',
-    [machineIds, startTime, endTime]
-  );
-  const stats = res.rows || [];
+  try {
+    const machineIds = idsStr.split(','); // แปลง "m1,m2" เป็น ["m1", "m2"]
+    
+    // ปรับรูปแบบวันที่ให้ชัวร์สำหรับ Postgres
+    const startTime = `${dateStr} 00:00:00`;
+    const endTime = `${dateStr} 23:59:59`;
+    
+    console.log(`[Compare] Date: ${dateStr}, IDs: ${idsStr}`);
 
-  const summary = {};
-  machineIds.forEach(id => summary[id] = 0);
-  stats.forEach(t => summary[t.machine_id] = parseInt(t.total));
-  
-  const niceDate = new Date(dateStr).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
-  const rows = machineIds.map(id => ({ type: "box", layout: "horizontal", margin: "sm", contents: [{ type: "text", text: `เครื่อง ${id}`, size: "sm", color: "#555555", flex: 6 }, { type: "text", text: `฿${(summary[id]||0).toLocaleString()}`, size: "sm", color: "#000000", weight: "bold", align: "end", flex: 4 }] }));
-  const grandTotal = Object.values(summary).reduce((a, b) => a + b, 0);
+    // SQL: ใช้ ANY($1) เพื่อเช็กค่าใน List และกรองวันที่
+    const res = await pool.query(
+      `SELECT machine_id, SUM(amount) as total 
+       FROM transactions 
+       WHERE machine_id = ANY($1) 
+       AND created_at >= $2::timestamp 
+       AND created_at <= $3::timestamp 
+       GROUP BY machine_id`,
+      [machineIds, startTime, endTime]
+    );
+    
+    const stats = res.rows || [];
+    const summary = {};
+    
+    // ตั้งค่าเริ่มต้นให้ทุกเครื่องเป็น 0 (เผื่อเครื่องไหนไม่มีค่ายอดขายในวันนั้น)
+    machineIds.forEach(id => summary[id] = 0);
+    stats.forEach(t => summary[t.machine_id] = parseInt(t.total));
+    
+    const niceDate = new Date(dateStr).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+    
+    // สร้างแถวข้อมูลเครื่อง
+    const rows = machineIds.map(id => ({
+      type: "box", layout: "horizontal", margin: "sm",
+      contents: [
+        { type: "text", text: `เครื่อง ${id}`, size: "sm", color: "#555555", flex: 6 },
+        { type: "text", text: `฿${(summary[id] || 0).toLocaleString()}`, size: "sm", color: "#000000", weight: "bold", align: "end", flex: 4 }
+      ]
+    }));
 
-  const bubble = {
-    type: "bubble",
-    header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📊 เปรียบเทียบยอดขาย`, color: "#ffffff", weight: "bold" }, { type: "text", text: `วันที่: ${niceDate}`, color: "#ffffff", size: "sm" }] },
-    body: { type: "box", layout: "vertical", spacing: "sm", contents: [...rows, { type: "separator", margin: "md" }, { type: "box", layout: "horizontal", margin: "md", contents: [{ type: "text", text: "รวมทั้งหมด", weight: "bold", color: "#FF1493" }, { type: "text", text: `฿${grandTotal.toLocaleString()}`, weight: "bold", align: "end", color: "#FF1493" }] }] },
-    footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "link", action: { type: "message", label: "🔙 เลือกวันอื่น", text: `CONFIRM_COMPARE:${idsStr}` } }] }
-  };
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "รายงานเปรียบเทียบ", contents: bubble });
+    const grandTotal = Object.values(summary).reduce((a, b) => a + b, 0);
+
+    const bubble = {
+      type: "bubble",
+      header: { 
+        type: "box", layout: "vertical", backgroundColor: "#333333", 
+        contents: [
+          { type: "text", text: `📊 เปรียบเทียบยอดขาย`, color: "#ffffff", weight: "bold" },
+          { type: "text", text: `วันที่: ${niceDate}`, color: "#ffffff", size: "sm" }
+        ] 
+      },
+      body: { 
+        type: "box", layout: "vertical", spacing: "sm", 
+        contents: [
+          ...rows, 
+          { type: "separator", margin: "md" }, 
+          { 
+            type: "box", layout: "horizontal", margin: "md", 
+            contents: [
+              { type: "text", text: "รวมทั้งหมด", weight: "bold", color: "#FF1493" },
+              { type: "text", text: `฿${grandTotal.toLocaleString()}`, weight: "bold", align: "end", color: "#FF1493" }
+            ] 
+          }
+        ] 
+      },
+      footer: { 
+        type: "box", layout: "vertical", 
+        contents: [{ type: "button", style: "link", action: { type: "message", label: "🔙 เลือกวันอื่น", text: `CONFIRM_COMPARE:${idsStr}` } }] 
+      }
+    };
+
+    return client.replyMessage(event.replyToken, { type: "flex", altText: "รายงานเปรียบเทียบ", contents: bubble });
+
+  } catch (err) {
+    console.error("Comparison Report Error:", err);
+    return client.replyMessage(event.replyToken, { type: 'text', text: 'เกิดข้อผิดพลาดในการคำนวณยอดเปรียบเทียบค่ะบอส!' });
+  }
 }
 
 // --- Helpers ---
