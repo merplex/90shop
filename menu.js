@@ -372,6 +372,28 @@ function createSummaryRow(label, data) {
   };
 }
 
+// --- 4.3 เลือกวันที่ (เพิ่มกลับเข้าไปให้บอทหาย Error ค่ะ) ---
+async function sendDateSelector(event, idsStr, client) {
+  if (!idsStr) return;
+  const today = new Date().toISOString().split('T')[0];
+  const yesterday = new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().split('T')[0];
+
+  const bubble = {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [{ type: "text", text: `📅 เลือกวันที่ดูรายงาน`, color: "#ffffff", weight: "bold" }] },
+    body: {
+      type: "box", layout: "vertical", spacing: "md",
+      contents: [
+        { type: "button", style: "primary", color: "#FF1493", action: { type: "message", label: "วันนี้", text: `VIEW_COMPARE_REPORT:${idsStr}|${today}` } },
+        { type: "button", style: "secondary", action: { type: "message", label: "เมื่อวาน", text: `VIEW_COMPARE_REPORT:${idsStr}|${yesterday}` } },
+        { type: "separator" },
+        { type: "button", style: "secondary", action: { type: "datetimepicker", label: "เลือกวันที่เอง 🗓️", data: `MACHINE_DATE_SELECT|${idsStr}`, mode: "date" } }
+      ]
+    }
+  };
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกวันที่", contents: bubble });
+}
+
 function chunkArray(arr, s) { const res = []; for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); return res; }
 
 module.exports = {
@@ -384,6 +406,7 @@ module.exports = {
   handleMachineReportLogic,
   sendMultiMachineSelector,
   sendComparisonReport,
+  sendDateSelector,
   ALPHABET_GROUPS,
   chunkArray
 };
