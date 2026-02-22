@@ -39,6 +39,42 @@ app.post('/webhook', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
 });
 
+// API สำหรับรับข้อมูลจาก ESP32
+app.use(express.json()); // เพิ่มบรรทัดนี้ด้านบนของไฟล์เพื่อให้รับ JSON ได้
+
+app.post('/api/generate-point-token', async (req, res) => {
+    const { machine_id, amount } = req.body; 
+    
+    try {
+        // 1. ดึง Config มาคำนวณแต้ม
+        const configRes = await pool.query('SELECT * FROM system_configs WHERE config_key = $1', ['default']);
+        const config = configRes.rows[0] || { baht_val: 10, point_val: 1 };
+        
+        // คำนวณแต้ม
+        const points = Math.floor(amount / config.baht_val) * config.point_val;
+
+        // 2. สร้าง Token
+        const token = require('crypto').randomUUID();
+
+        // 3. บันทึกลงตาราง (เพิ่ม scan_amount เพื่อเก็บยอดเงินจริง)
+        await pool.query(
+          `INSERT INTO "qrPointToken" (qr_token, point_get, scan_amount, machine_id, is_used, create_at, expired_at) 
+           VALUES ($1, $2, $3, $4, false, NOW(), NOW() + INTERVAL '30 minutes')`,
+          [token, points, amount, machine_id] // $3 คือเก็บจำนวนเงินที่หยอดมาจริง
+        );
+
+        // 4. สร้าง URL (ใช้ LIFF ID จาก Environment Variable)
+        const scanUrl = `https://liff.line.me/${process.env.LIFF_ID}?token=${token}`;
+
+        console.log(`[ESP32] Machine: ${machine_id} | Amount: ${amount} THB | Points: ${points}`);
+        
+        res.status(200).json({ status: 'success', url: scanUrl });
+    } catch (err) {
+        console.error("API Error:", err);
+        res.status(500).json({ status: 'error', message: "Internal Server Error" });
+    }
+});
+
 async function handleEvent(event) {
   if (event.type === 'postback') {
     const data = event.postback.data;
