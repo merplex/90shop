@@ -12,25 +12,13 @@ function getAdminMenu() {
     contents: [
       {
         type: "bubble",
-        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "1. เมนูสร้าง", weight: "bold", color: "#1DB446", size: "lg" }] },
+        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "เมนู Admin", weight: "bold", color: "#1DB446", size: "lg" }] },
         body: {
           type: "box", layout: "vertical", spacing: "md",
           contents: [
             { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "👤 จัดการ Owner", data: "PROMPT_ADD_OWNER", displayText: "จัดการ Owner" } },
             { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "📍 จัดการ Branch", data: "PROMPT_ADD_BRANCH", displayText: "จัดการ Branch" } },
             { type: "button", style: "primary", color: "#1DB446", height: "sm", action: { type: "postback", label: "🔗 เริ่มจับคู่", data: "PROMPT_MATCH", displayText: "เริ่มจับคู่" } }
-          ]
-        }
-      },
-      {
-        type: "bubble",
-        header: { type: "box", layout: "vertical", contents: [{ type: "text", text: "2. เมนูจัดการ", weight: "bold", color: "#464a4d", size: "lg" }] },
-        body: {
-          type: "box", layout: "vertical", spacing: "md",
-          contents: [
-            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📝 แก้ไข Owner", text: "SELECT_GROUP_Owner" } },
-            { type: "button", style: "secondary", height: "sm", action: { type: "message", label: "📍 แก้ไข Branch", text: "SELECT_GROUP_Branch" } },
-            { type: "button", style: "primary", color: "#464a4d", height: "sm", action: { type: "message", label: "📋 ดูคู่ (ลบ)", text: "SELECT_GROUP_Map" } }
           ]
         }
       }
