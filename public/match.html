@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>จับคู่ Owner-สาขา</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f0f0f0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    .top-bar { background: #1DB446; color: #fff; padding: 14px 16px; font-size: 17px; font-weight: bold; flex-shrink: 0; }
+
+    .panels { display: flex; flex: 1; overflow: hidden; gap: 1px; background: #ddd; }
+
+    .panel { background: #fff; display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+    .panel-title { padding: 10px 12px; font-size: 13px; font-weight: bold; color: #555; background: #f9f9f9; border-bottom: 1px solid #eee; flex-shrink: 0; }
+
+    .list { flex: 1; overflow-y: auto; }
+
+    .owner-item {
+      padding: 12px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer;
+      font-size: 14px; color: #333;
+    }
+    .owner-item.active { background: #e6f7ec; color: #1DB446; font-weight: bold; border-left: 3px solid #1DB446; }
+    .owner-item:hover { background: #f5f5f5; }
+
+    .branch-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 11px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer;
+      font-size: 14px; color: #333;
+    }
+    .branch-item.checked { background: #e6f7ec; }
+    .branch-item input[type=checkbox] { width: 18px; height: 18px; accent-color: #1DB446; flex-shrink: 0; }
+    .branch-empty { padding: 20px; text-align: center; color: #aaa; font-size: 13px; }
+
+    .footer { background: #fff; border-top: 1px solid #ddd; padding: 12px 16px; flex-shrink: 0; }
+    .summary { font-size: 13px; color: #555; margin-bottom: 8px; min-height: 18px; }
+    .summary .add { color: #1DB446; font-weight: bold; }
+    .summary .remove { color: #e53935; font-weight: bold; }
+
+    #confirm-btn {
+      width: 100%; padding: 13px; background: #1DB446; color: #fff;
+      border: none; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer;
+    }
+    #confirm-btn:disabled { background: #aaa; }
+
+    .loading { padding: 30px; text-align: center; color: #aaa; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="top-bar">จับคู่ Owner - สาขา</div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-title">Owner</div>
+      <div class="list" id="owner-list"><div class="loading">กำลังโหลด...</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">สาขา</div>
+      <div class="list" id="branch-list"><div class="branch-empty">เลือก Owner ก่อน</div></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="summary" id="summary"></div>
+    <button id="confirm-btn" disabled>เลือก Owner ก่อน</button>
+  </div>
+
+  <script>
+    let owners = [], branches = [];
+    let selectedOwner = null;
+    let originalBranchIds = new Set();
+    let currentBranchIds = new Set();
+
+    async function init() {
+      await liff.init({ liffId: '2009523613-hLnRGrZC' });
+      if (!liff.isLoggedIn()) { liff.login(); return; }
+
+      const [ownersRes, branchesRes] = await Promise.all([
+        fetch('/api/owners').then(r => r.json()),
+        fetch('/api/branches').then(r => r.json())
+      ]);
+      owners = ownersRes;
+      branches = branchesRes;
+      renderOwners();
+    }
+
+    function renderOwners() {
+      const el = document.getElementById('owner-list');
+      if (owners.length === 0) { el.innerHTML = '<div class="branch-empty">ไม่มีข้อมูล Owner</div>'; return; }
+      el.innerHTML = owners.map(o => `
+        <div class="owner-item${selectedOwner && selectedOwner.owner_line_id === o.owner_line_id ? ' active' : ''}"
+             onclick="selectOwner('${o.owner_line_id}', '${o.owner_name.replace(/'/g, "\\'")}')">
+          ${o.owner_name}
+        </div>
+      `).join('');
+    }
+
+    async function selectOwner(id, name) {
+      selectedOwner = { owner_line_id: id, owner_name: name };
+      renderOwners();
+
+      document.getElementById('branch-list').innerHTML = '<div class="loading">กำลังโหลด...</div>';
+      document.getElementById('confirm-btn').disabled = true;
+
+      const matched = await fetch(`/api/owner-branches/${id}`).then(r => r.json());
+      originalBranchIds = new Set(matched);
+      currentBranchIds = new Set(matched);
+
+      renderBranches();
+      updateSummary();
+      document.getElementById('confirm-btn').disabled = false;
+    }
+
+    function renderBranches() {
+      const el = document.getElementById('branch-list');
+      if (branches.length === 0) { el.innerHTML = '<div class="branch-empty">ไม่มีข้อมูลสาขา</div>'; return; }
+      el.innerHTML = branches.map(b => `
+        <label class="branch-item${currentBranchIds.has(b.id) ? ' checked' : ''}">
+          <input type="checkbox" ${currentBranchIds.has(b.id) ? 'checked' : ''}
+                 onchange="toggleBranch(${b.id}, this.checked, this)" />
+          ${b.branch_name}
+        </label>
+      `).join('');
+    }
+
+    function toggleBranch(branchId, checked, checkbox) {
+      if (checked) {
+        currentBranchIds.add(branchId);
+      } else {
+        currentBranchIds.delete(branchId);
+      }
+      checkbox.closest('.branch-item').classList.toggle('checked', checked);
+      updateSummary();
+    }
+
+    function updateSummary() {
+      const added = [...currentBranchIds].filter(id => !originalBranchIds.has(id)).length;
+      const removed = [...originalBranchIds].filter(id => !currentBranchIds.has(id)).length;
+      const total = currentBranchIds.size;
+
+      let parts = [];
+      if (added > 0) parts.push(`<span class="add">+${added} สาขา</span>`);
+      if (removed > 0) parts.push(`<span class="remove">-${removed} สาขา</span>`);
+
+      const summaryEl = document.getElementById('summary');
+      const btn = document.getElementById('confirm-btn');
+
+      if (parts.length > 0) {
+        summaryEl.innerHTML = `รวม ${total} สาขา (${parts.join(' ')})`;
+        btn.textContent = `ยืนยัน (${parts.join(' ')})`;
+      } else {
+        summaryEl.textContent = `รวม ${total} สาขา (ไม่มีการเปลี่ยนแปลง)`;
+        btn.textContent = 'ไม่มีการเปลี่ยนแปลง';
+      }
+    }
+
+    document.getElementById('confirm-btn').addEventListener('click', async () => {
+      if (!selectedOwner) return;
+
+      const added = [...currentBranchIds].filter(id => !originalBranchIds.has(id));
+      const removed = [...originalBranchIds].filter(id => !currentBranchIds.has(id));
+
+      if (added.length === 0 && removed.length === 0) return;
+
+      const btn = document.getElementById('confirm-btn');
+      btn.disabled = true;
+      btn.textContent = 'กำลังบันทึก...';
+
+      try {
+        const res = await fetch('/api/match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ownerId: selectedOwner.owner_line_id, addBranchIds: added, removeBranchIds: removed })
+        });
+        const data = await res.json();
+        document.getElementById('summary').textContent = data.message || 'บันทึกสำเร็จ';
+        originalBranchIds = new Set(currentBranchIds);
+        updateSummary();
+      } catch (e) {
+        document.getElementById('summary').textContent = 'เกิดข้อผิดพลาด กรุณาลองใหม่';
+      }
+      btn.disabled = false;
+    });
+
+    init();
+  </script>
+</body>
+</html>

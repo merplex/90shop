@@ -53,6 +53,35 @@ app.post('/api/add-branch', express.json(), async (req, res) => {
   return res.json({ message: `บันทึกสาขา: ${name} สำเร็จ` });
 });
 
+app.get('/api/owners', async (req, res) => {
+  const result = await pool.query('SELECT owner_line_id, owner_name FROM branch_owners ORDER BY owner_name');
+  res.json(result.rows);
+});
+
+app.get('/api/branches', async (req, res) => {
+  const result = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
+  res.json(result.rows);
+});
+
+app.get('/api/owner-branches/:ownerId', async (req, res) => {
+  const result = await pool.query('SELECT branch_id FROM owner_branch_mapping WHERE owner_line_id = $1', [req.params.ownerId]);
+  res.json(result.rows.map(r => r.branch_id));
+});
+
+app.post('/api/match', express.json(), async (req, res) => {
+  const { ownerId, addBranchIds, removeBranchIds } = req.body;
+  if (!ownerId) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+  if (removeBranchIds && removeBranchIds.length > 0) {
+    await pool.query('DELETE FROM owner_branch_mapping WHERE owner_line_id = $1 AND branch_id = ANY($2)', [ownerId, removeBranchIds]);
+  }
+  if (addBranchIds && addBranchIds.length > 0) {
+    for (const bId of addBranchIds) {
+      await pool.query('INSERT INTO owner_branch_mapping (owner_line_id, branch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [ownerId, bId]);
+    }
+  }
+  res.json({ message: 'บันทึกสำเร็จ' });
+});
+
 app.post('/webhook', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
 });
@@ -64,6 +93,21 @@ async function handleEvent(event) {
       const idsStr = data.split('|')[1];
       const selectedDate = event.postback.params.date;
       return sendComparisonReport(event, idsStr, selectedDate, pool, client); // ส่ง pool แทน supabase
+    }
+    if (data === 'PROMPT_MATCH') {
+      return client.replyMessage(event.replyToken, {
+        type: 'flex', altText: 'จับคู่ Owner-สาขา',
+        contents: {
+          type: 'bubble',
+          body: { type: 'box', layout: 'vertical', contents: [
+            { type: 'text', text: 'จับคู่ Owner - สาขา', weight: 'bold', size: 'lg' },
+            { type: 'text', text: 'เลือก Owner แล้วจิ้มสาขาที่ต้องการ', size: 'sm', color: '#888888', margin: 'md', wrap: true }
+          ]},
+          footer: { type: 'box', layout: 'vertical', contents: [
+            { type: 'button', style: 'primary', color: '#1DB446', action: { type: 'uri', label: 'เปิดหน้าจับคู่', uri: 'https://liff.line.me/2009523613-hLnRGrZC?mode=match' } }
+          ]}
+        }
+      });
     }
     if (data === 'PROMPT_ADD_OWNER' || data === 'PROMPT_ADD_BRANCH') {
       const isOwner = data === 'PROMPT_ADD_OWNER';
