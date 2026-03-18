@@ -34,6 +34,18 @@ const pool = new Pool({
 });
 
 const app = express();
+app.use(express.static('public'));
+app.use(express.json());
+
+app.post('/api/add-owner', async (req, res) => {
+  const { userId, name } = req.body;
+  if (!userId || !name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+  await pool.query(
+    'INSERT INTO branch_owners (owner_line_id, owner_name) VALUES ($1, $2) ON CONFLICT (owner_line_id) DO UPDATE SET owner_name = EXCLUDED.owner_name',
+    [userId, name]
+  );
+  return res.json({ message: `บันทึกเจ้าของ: ${name} สำเร็จ` });
+});
 
 app.post('/webhook', line.middleware(config), (req, res) => {
   Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
@@ -46,6 +58,25 @@ async function handleEvent(event) {
       const idsStr = data.split('|')[1];
       const selectedDate = event.postback.params.date;
       return sendComparisonReport(event, idsStr, selectedDate, pool, client); // ส่ง pool แทน supabase
+    }
+    if (data === 'PROMPT_ADD_OWNER') {
+      const liffId = '2009523613-hLnRGrZC';
+      return client.replyMessage(event.replyToken, {
+        type: 'flex', altText: 'เพิ่ม Owner',
+        contents: {
+          type: 'bubble',
+          body: { type: 'box', layout: 'vertical', contents: [
+            { type: 'text', text: 'เพิ่ม Owner', weight: 'bold', size: 'lg' },
+            { type: 'text', text: 'กดปุ่มด้านล่างเพื่อกรอกชื่อ Owner', size: 'sm', color: '#888888', margin: 'md', wrap: true }
+          ]},
+          footer: { type: 'box', layout: 'vertical', contents: [
+            { type: 'button', style: 'primary', color: '#1DB446', action: { type: 'uri', label: 'กรอกชื่อ Owner', uri: `https://liff.line.me/${liffId}` } }
+          ]}
+        }
+      });
+    }
+    if (data === 'PROMPT_ADD_BRANCH') {
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'กรุณาพิมพ์:\nBranch [ชื่อสาขา]\n\nตัวอย่าง: Branch สาขาลาดพร้าว' });
     }
     return null;
   }

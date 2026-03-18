@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>เพิ่ม Owner</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+    .card { background: #fff; border-radius: 12px; padding: 24px; width: 90%; max-width: 360px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+    h2 { color: #1DB446; margin-bottom: 8px; }
+    .profile { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+    .profile img { width: 44px; height: 44px; border-radius: 50%; }
+    .profile span { font-size: 13px; color: #555; }
+    label { font-size: 14px; color: #333; display: block; margin-bottom: 6px; }
+    input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; margin-bottom: 16px; }
+    button { width: 100%; padding: 12px; background: #1DB446; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+    button:disabled { background: #aaa; }
+    #msg { margin-top: 14px; text-align: center; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>เพิ่ม Owner</h2>
+    <div class="profile">
+      <img id="avatar" src="" alt="" style="display:none" />
+      <span id="uid-display">กำลังโหลด...</span>
+    </div>
+    <label for="name-input">ชื่อ Owner</label>
+    <input id="name-input" type="text" placeholder="กรอกชื่อ" />
+    <button id="submit-btn" disabled>บันทึก</button>
+    <div id="msg"></div>
+  </div>
+
+  <script>
+    let userId = '';
+
+    async function init() {
+      await liff.init({ liffId: '2009523613-hLnRGrZC' });
+      if (!liff.isLoggedIn()) { liff.login(); return; }
+
+      const profile = await liff.getProfile();
+      userId = profile.userId;
+
+      const avatar = document.getElementById('avatar');
+      avatar.src = profile.pictureUrl;
+      avatar.style.display = 'block';
+      document.getElementById('uid-display').textContent = profile.displayName;
+      document.getElementById('submit-btn').disabled = false;
+    }
+
+    document.getElementById('submit-btn').addEventListener('click', async () => {
+      const name = document.getElementById('name-input').value.trim();
+      if (!name) { document.getElementById('msg').textContent = 'กรุณากรอกชื่อ'; return; }
+
+      const btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      btn.textContent = 'กำลังบันทึก...';
+
+      try {
+        const res = await fetch('/api/add-owner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, name })
+        });
+        const data = await res.json();
+        document.getElementById('msg').textContent = data.message || 'บันทึกสำเร็จ';
+        setTimeout(() => liff.closeWindow(), 1500);
+      } catch (e) {
+        document.getElementById('msg').textContent = 'เกิดข้อผิดพลาด กรุณาลองใหม่';
+        btn.disabled = false;
+        btn.textContent = 'บันทึก';
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>
