@@ -68,6 +68,30 @@ app.get('/api/owner-branches/:ownerId', async (req, res) => {
   res.json(result.rows.map(r => r.branch_id));
 });
 
+app.put('/api/owner/:id', express.json(), async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+  await pool.query('UPDATE branch_owners SET owner_name = $1 WHERE owner_line_id = $2', [name, req.params.id]);
+  res.json({ message: 'แก้ไขสำเร็จ' });
+});
+
+app.delete('/api/owner/:id', async (req, res) => {
+  await pool.query('DELETE FROM branch_owners WHERE owner_line_id = $1', [req.params.id]);
+  res.json({ message: 'ลบสำเร็จ' });
+});
+
+app.put('/api/branch/:id', express.json(), async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+  await pool.query('UPDATE branches SET branch_name = $1 WHERE id = $2', [name, req.params.id]);
+  res.json({ message: 'แก้ไขสำเร็จ' });
+});
+
+app.delete('/api/branch/:id', async (req, res) => {
+  await pool.query('DELETE FROM branches WHERE id = $1', [req.params.id]);
+  res.json({ message: 'ลบสำเร็จ' });
+});
+
 app.post('/api/match', express.json(), async (req, res) => {
   const { ownerId, addBranchIds, removeBranchIds } = req.body;
   if (!ownerId) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
@@ -113,15 +137,15 @@ async function handleEvent(event) {
       const isOwner = data === 'PROMPT_ADD_OWNER';
       const liffUrl = `https://liff.line.me/2009523613-hLnRGrZC?mode=${isOwner ? 'owner' : 'branch'}`;
       return client.replyMessage(event.replyToken, {
-        type: 'flex', altText: isOwner ? 'เพิ่ม Owner' : 'เพิ่มสาขา',
+        type: 'flex', altText: isOwner ? 'จัดการ Owner' : 'จัดการ Branch',
         contents: {
           type: 'bubble',
           body: { type: 'box', layout: 'vertical', contents: [
-            { type: 'text', text: isOwner ? 'เพิ่ม Owner' : 'เพิ่มสาขา', weight: 'bold', size: 'lg' },
-            { type: 'text', text: 'กดปุ่มด้านล่างเพื่อกรอกข้อมูล', size: 'sm', color: '#888888', margin: 'md', wrap: true }
+            { type: 'text', text: isOwner ? 'จัดการ Owner' : 'จัดการ Branch', weight: 'bold', size: 'lg' },
+            { type: 'text', text: 'กดปุ่มด้านล่างเพื่อจัดการข้อมูล', size: 'sm', color: '#888888', margin: 'md', wrap: true }
           ]},
           footer: { type: 'box', layout: 'vertical', contents: [
-            { type: 'button', style: 'primary', color: '#1DB446', action: { type: 'uri', label: isOwner ? 'กรอกชื่อ Owner' : 'กรอกชื่อสาขา', uri: liffUrl } }
+            { type: 'button', style: 'primary', color: '#1DB446', action: { type: 'uri', label: isOwner ? 'เช็ค Owner' : 'เช็ค Branch', uri: liffUrl } }
           ]}
         }
       });

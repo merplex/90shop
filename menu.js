@@ -16,8 +16,8 @@ function getAdminMenu() {
         body: {
           type: "box", layout: "vertical", spacing: "md",
           contents: [
-            { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "👤 สร้าง Owner", data: "PROMPT_ADD_OWNER", displayText: "สร้าง Owner" } },
-            { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "📍 สร้าง Branch", data: "PROMPT_ADD_BRANCH", displayText: "สร้าง Branch" } },
+            { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "👤 จัดการ Owner", data: "PROMPT_ADD_OWNER", displayText: "จัดการ Owner" } },
+            { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "📍 จัดการ Branch", data: "PROMPT_ADD_BRANCH", displayText: "จัดการ Branch" } },
             { type: "button", style: "primary", color: "#1DB446", height: "sm", action: { type: "postback", label: "🔗 เริ่มจับคู่", data: "PROMPT_MATCH", displayText: "เริ่มจับคู่" } }
           ]
         }

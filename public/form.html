@@ -7,17 +7,33 @@
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
-    .card { background: #fff; border-radius: 12px; padding: 24px; width: 90%; max-width: 360px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
-    h2 { color: #1DB446; margin-bottom: 8px; }
-    .profile { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
-    .profile img { width: 44px; height: 44px; border-radius: 50%; }
-    .profile span { font-size: 13px; color: #555; }
-    label { font-size: 14px; color: #333; display: block; margin-bottom: 6px; }
-    input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; margin-bottom: 16px; }
-    button { width: 100%; padding: 12px; background: #1DB446; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
-    button:disabled { background: #aaa; }
-    #msg { margin-top: 14px; text-align: center; font-size: 14px; }
+    body { font-family: sans-serif; background: #f5f5f5; min-height: 100vh; padding: 16px; }
+    .card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 16px; }
+    h2 { color: #1DB446; margin-bottom: 16px; font-size: 18px; }
+    h3 { color: #333; margin-bottom: 12px; font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+    label { font-size: 13px; color: #555; display: block; margin-bottom: 5px; }
+    input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; margin-bottom: 12px; }
+    .btn-green { width: 100%; padding: 11px; background: #1DB446; color: #fff; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; }
+    .btn-green:disabled { background: #aaa; }
+    #msg { margin-top: 10px; text-align: center; font-size: 13px; color: #1DB446; min-height: 18px; }
+
+    .list-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 0; border-bottom: 1px solid #f0f0f0;
+    }
+    .list-item:last-child { border-bottom: none; }
+    .item-name { flex: 1; font-size: 14px; color: #333; }
+    .item-sub { font-size: 11px; color: #aaa; }
+    .btn-edit { padding: 5px 12px; background: #f0f0f0; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; color: #333; }
+    .btn-delete { padding: 5px 12px; background: #fdecea; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; color: #e53935; }
+
+    .edit-row { display: none; width: 100%; margin-top: 6px; gap: 6px; }
+    .edit-row.show { display: flex; }
+    .edit-row input { margin-bottom: 0; flex: 1; font-size: 14px; padding: 7px 10px; }
+    .btn-save { padding: 7px 14px; background: #1DB446; color: #fff; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+    .btn-cancel { padding: 7px 10px; background: #eee; color: #555; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; }
+
+    .loading { text-align: center; color: #aaa; font-size: 13px; padding: 16px 0; }
   </style>
 </head>
 <body>
@@ -29,34 +45,87 @@
     </div>
     <label id="input-label" for="name-input">ชื่อ</label>
     <input id="name-input" type="text" placeholder="กรอกชื่อ" />
-    <button id="submit-btn" disabled>บันทึก</button>
+    <button class="btn-green" id="submit-btn" disabled>สร้าง</button>
     <div id="msg"></div>
+  </div>
+
+  <div class="card">
+    <h3 id="list-title">รายการ</h3>
+    <div id="item-list"><div class="loading">กำลังโหลด...</div></div>
   </div>
 
   <script>
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode') || 'owner';
 
-    if (mode === 'match') {
-      window.location.replace('/match.html');
-    }
+    if (mode === 'match') { window.location.replace('/match.html'); }
 
     async function init() {
       await liff.init({ liffId: '2009523613-hLnRGrZC' });
       if (!liff.isLoggedIn()) { liff.login(); return; }
 
       if (mode === 'owner') {
-        document.getElementById('title').textContent = 'เพิ่ม Owner';
+        document.getElementById('title').textContent = 'จัดการ Owner';
+        document.getElementById('list-title').textContent = 'Owner ทั้งหมด';
         document.getElementById('input-label').textContent = 'ชื่อ Owner';
         document.getElementById('name-input').placeholder = 'กรอกชื่อ Owner';
         document.getElementById('owner-fields').style.display = 'block';
       } else {
-        document.getElementById('title').textContent = 'เพิ่มสาขา';
+        document.getElementById('title').textContent = 'จัดการ Branch';
+        document.getElementById('list-title').textContent = 'สาขาทั้งหมด';
         document.getElementById('input-label').textContent = 'ชื่อสาขา';
         document.getElementById('name-input').placeholder = 'กรอกชื่อสาขา';
       }
 
       document.getElementById('submit-btn').disabled = false;
+      loadList();
+    }
+
+    async function loadList() {
+      const el = document.getElementById('item-list');
+      el.innerHTML = '<div class="loading">กำลังโหลด...</div>';
+      const url = mode === 'owner' ? '/api/owners' : '/api/branches';
+      const items = await fetch(url).then(r => r.json());
+      if (items.length === 0) { el.innerHTML = '<div class="loading">ยังไม่มีข้อมูล</div>'; return; }
+
+      el.innerHTML = items.map(item => {
+        const id = mode === 'owner' ? item.owner_line_id : item.id;
+        const name = mode === 'owner' ? item.owner_name : item.branch_name;
+        const sub = mode === 'owner' ? `<span class="item-sub">${item.owner_line_id}</span>` : '';
+        return `
+          <div class="list-item" id="item-${id}">
+            <div class="item-name" style="flex-direction:column;display:flex;gap:2px">
+              <span>${name}</span>${sub}
+              <div class="edit-row" id="edit-${id}">
+                <input type="text" value="${name}" id="editinput-${id}" />
+                <button class="btn-save" onclick="saveEdit('${id}', '${name}')">บันทึก</button>
+                <button class="btn-cancel" onclick="cancelEdit('${id}')">ยกเลิก</button>
+              </div>
+            </div>
+            <button class="btn-edit" onclick="startEdit('${id}')">แก้ไข</button>
+            <button class="btn-delete" onclick="deleteItem('${id}', '${name}')">ลบ</button>
+          </div>`;
+      }).join('');
+    }
+
+    function startEdit(id) {
+      document.getElementById(`edit-${id}`).classList.add('show');
+    }
+    function cancelEdit(id) {
+      document.getElementById(`edit-${id}`).classList.remove('show');
+    }
+    async function saveEdit(id) {
+      const newName = document.getElementById(`editinput-${id}`).value.trim();
+      if (!newName) return;
+      const url = mode === 'owner' ? `/api/owner/${id}` : `/api/branch/${id}`;
+      await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newName }) });
+      loadList();
+    }
+    async function deleteItem(id, name) {
+      if (!confirm(`ลบ "${name}" ?`)) return;
+      const url = mode === 'owner' ? `/api/owner/${id}` : `/api/branch/${id}`;
+      await fetch(url, { method: 'DELETE' });
+      loadList();
     }
 
     document.getElementById('submit-btn').addEventListener('click', async () => {
@@ -65,12 +134,11 @@
 
       const btn = document.getElementById('submit-btn');
       btn.disabled = true;
-      btn.textContent = 'กำลังบันทึก...';
 
       let endpoint, body;
       if (mode === 'owner') {
         const userId = document.getElementById('lineid-input').value.trim();
-        if (!userId) { document.getElementById('msg').textContent = 'กรุณากรอก LINE ID'; btn.disabled = false; btn.textContent = 'บันทึก'; return; }
+        if (!userId) { document.getElementById('msg').textContent = 'กรุณากรอก LINE ID'; btn.disabled = false; return; }
         endpoint = '/api/add-owner';
         body = { userId, name };
       } else {
@@ -79,19 +147,16 @@
       }
 
       try {
-        const res = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
+        const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
         const data = await res.json();
         document.getElementById('msg').textContent = data.message || 'บันทึกสำเร็จ';
-        setTimeout(() => liff.closeWindow(), 1500);
+        document.getElementById('name-input').value = '';
+        if (mode === 'owner') document.getElementById('lineid-input').value = '';
+        loadList();
       } catch (e) {
-        document.getElementById('msg').textContent = 'เกิดข้อผิดพลาด กรุณาลองใหม่';
-        btn.disabled = false;
-        btn.textContent = 'บันทึก';
+        document.getElementById('msg').textContent = 'เกิดข้อผิดพลาด';
       }
+      btn.disabled = false;
     });
 
     init();
