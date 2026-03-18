@@ -23,9 +23,9 @@
 <body>
   <div class="card">
     <h2 id="title">กำลังโหลด...</h2>
-    <div class="profile" id="profile-box" style="display:none">
-      <img id="avatar" src="" alt="" />
-      <span id="uid-display"></span>
+    <div id="owner-fields" style="display:none">
+      <label for="lineid-input">LINE ID เจ้าของ (Uxxxxxxxx)</label>
+      <input id="lineid-input" type="text" placeholder="Uxxxxxxxx" />
     </div>
     <label id="input-label" for="name-input">ชื่อ</label>
     <input id="name-input" type="text" placeholder="กรอกชื่อ" />
@@ -36,7 +36,6 @@
   <script>
     const params = new URLSearchParams(window.location.search);
     const mode = params.get('mode') || 'owner';
-    let userId = '';
 
     async function init() {
       await liff.init({ liffId: '2009523613-hLnRGrZC' });
@@ -46,12 +45,7 @@
         document.getElementById('title').textContent = 'เพิ่ม Owner';
         document.getElementById('input-label').textContent = 'ชื่อ Owner';
         document.getElementById('name-input').placeholder = 'กรอกชื่อ Owner';
-
-        const profile = await liff.getProfile();
-        userId = profile.userId;
-        document.getElementById('avatar').src = profile.pictureUrl;
-        document.getElementById('uid-display').textContent = profile.displayName;
-        document.getElementById('profile-box').style.display = 'flex';
+        document.getElementById('owner-fields').style.display = 'block';
       } else {
         document.getElementById('title').textContent = 'เพิ่มสาขา';
         document.getElementById('input-label').textContent = 'ชื่อสาขา';
@@ -69,8 +63,16 @@
       btn.disabled = true;
       btn.textContent = 'กำลังบันทึก...';
 
-      const endpoint = mode === 'owner' ? '/api/add-owner' : '/api/add-branch';
-      const body = mode === 'owner' ? { userId, name } : { name };
+      let endpoint, body;
+      if (mode === 'owner') {
+        const userId = document.getElementById('lineid-input').value.trim();
+        if (!userId) { document.getElementById('msg').textContent = 'กรุณากรอก LINE ID'; btn.disabled = false; btn.textContent = 'บันทึก'; return; }
+        endpoint = '/api/add-owner';
+        body = { userId, name };
+      } else {
+        endpoint = '/api/add-branch';
+        body = { name };
+      }
 
       try {
         const res = await fetch(endpoint, {
