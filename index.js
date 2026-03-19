@@ -39,6 +39,8 @@ app.use(express.static('public'));
 app.post('/api/add-owner', express.json(), async (req, res) => {
   const { userId, name } = req.body;
   if (!userId || !name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+  const dupName = await pool.query('SELECT 1 FROM branch_owners WHERE owner_name = $1 AND owner_line_id != $2', [name, userId]);
+  if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อ "${name}" มีอยู่แล้ว` });
   await pool.query(
     'INSERT INTO branch_owners (owner_line_id, owner_name) VALUES ($1, $2) ON CONFLICT (owner_line_id) DO UPDATE SET owner_name = EXCLUDED.owner_name',
     [userId, name]
@@ -49,6 +51,8 @@ app.post('/api/add-owner', express.json(), async (req, res) => {
 app.post('/api/add-branch', express.json(), async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+  const dupName = await pool.query('SELECT 1 FROM branches WHERE branch_name = $1', [name]);
+  if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อสาขา "${name}" มีอยู่แล้ว` });
   await pool.query('INSERT INTO branches (branch_name) VALUES ($1)', [name]);
   return res.json({ message: `บันทึกสาขา: ${name} สำเร็จ` });
 });
@@ -71,6 +75,8 @@ app.get('/api/owner-branches/:ownerId', async (req, res) => {
 app.put('/api/owner/:id', express.json(), async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+  const dupName = await pool.query('SELECT 1 FROM branch_owners WHERE owner_name = $1 AND owner_line_id != $2', [name, req.params.id]);
+  if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อ "${name}" มีอยู่แล้ว` });
   await pool.query('UPDATE branch_owners SET owner_name = $1 WHERE owner_line_id = $2', [name, req.params.id]);
   res.json({ message: 'แก้ไขสำเร็จ' });
 });
@@ -83,6 +89,8 @@ app.delete('/api/owner/:id', async (req, res) => {
 app.put('/api/branch/:id', express.json(), async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+  const dupName = await pool.query('SELECT 1 FROM branches WHERE branch_name = $1 AND id != $2', [name, req.params.id]);
+  if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อสาขา "${name}" มีอยู่แล้ว` });
   await pool.query('UPDATE branches SET branch_name = $1 WHERE id = $2', [name, req.params.id]);
   res.json({ message: 'แก้ไขสำเร็จ' });
 });
