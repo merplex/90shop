@@ -147,6 +147,22 @@ async function handleEvent(event) {
   const userText = event.message.text.trim();
   console.log(`[Log] Incoming: "${userText}"`);
 
+  if (userText === 'dbcheck') {
+    const [br, mp] = await Promise.all([
+      pool.query('SELECT id, branch_name FROM branches ORDER BY id'),
+      pool.query(`SELECT m.owner_line_id, o.owner_name, m.branch_id, b.branch_name as bn
+                  FROM owner_branch_mapping m
+                  LEFT JOIN branch_owners o ON m.owner_line_id = o.owner_line_id
+                  LEFT JOIN branches b ON m.branch_id = b.id`)
+    ]);
+    const branchLines = br.rows.map(r => `id=${r.id} "${r.branch_name}"`).join('\n');
+    const mapLines = mp.rows.map(r => `${r.owner_name}(${r.owner_line_id?.slice(-4)}) → branch_id=${r.branch_id} "${r.bn ?? 'NULL(orphan)'}"`).join('\n');
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: `[branches]\n${branchLines || 'ว่าง'}\n\n[mapping]\n${mapLines || 'ว่าง'}`
+    });
+  }
+
   if (userText.toLowerCase() === 'admin') {
     return client.replyMessage(event.replyToken, {
       type: "flex",
