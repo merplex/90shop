@@ -126,38 +126,6 @@ async function handleEvent(event) {
       const selectedDate = event.postback.params.date;
       return sendComparisonReport(event, idsStr, selectedDate, pool, client); // ส่ง pool แทน supabase
     }
-    if (data === 'PROMPT_MATCH') {
-      return client.replyMessage(event.replyToken, {
-        type: 'flex', altText: 'จับคู่ Owner-สาขา',
-        contents: {
-          type: 'bubble',
-          body: { type: 'box', layout: 'vertical', contents: [
-            { type: 'text', text: 'จับคู่ Owner - สาขา', weight: 'bold', size: 'lg' },
-            { type: 'text', text: 'เลือก Owner แล้วจิ้มสาขาที่ต้องการ', size: 'sm', color: '#888888', margin: 'md', wrap: true }
-          ]},
-          footer: { type: 'box', layout: 'vertical', contents: [
-            { type: 'button', style: 'primary', color: '#1DB446', action: { type: 'uri', label: 'เปิดหน้าจับคู่', uri: 'https://liff.line.me/2009523613-hLnRGrZC?mode=match' } }
-          ]}
-        }
-      });
-    }
-    if (data === 'PROMPT_ADD_OWNER' || data === 'PROMPT_ADD_BRANCH') {
-      const isOwner = data === 'PROMPT_ADD_OWNER';
-      const liffUrl = `https://liff.line.me/2009523613-hLnRGrZC?mode=${isOwner ? 'owner' : 'branch'}`;
-      return client.replyMessage(event.replyToken, {
-        type: 'flex', altText: isOwner ? 'จัดการ Owner' : 'จัดการ Branch',
-        contents: {
-          type: 'bubble',
-          body: { type: 'box', layout: 'vertical', contents: [
-            { type: 'text', text: isOwner ? 'จัดการ Owner' : 'จัดการ Branch', weight: 'bold', size: 'lg' },
-            { type: 'text', text: 'กดปุ่มด้านล่างเพื่อจัดการข้อมูล', size: 'sm', color: '#888888', margin: 'md', wrap: true }
-          ]},
-          footer: { type: 'box', layout: 'vertical', contents: [
-            { type: 'button', style: 'primary', color: '#1DB446', action: { type: 'uri', label: isOwner ? 'เช็ค Owner' : 'เช็ค Branch', uri: liffUrl } }
-          ]}
-        }
-      });
-    }
     return null;
   }
 

@@ -16,9 +16,9 @@ function getAdminMenu() {
         body: {
           type: "box", layout: "vertical", spacing: "md",
           contents: [
-            { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "👤 จัดการ Owner", data: "PROMPT_ADD_OWNER", displayText: "จัดการ Owner" } },
-            { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: "📍 จัดการ Branch", data: "PROMPT_ADD_BRANCH", displayText: "จัดการ Branch" } },
-            { type: "button", style: "primary", color: "#1DB446", height: "sm", action: { type: "postback", label: "🔗 เริ่มจับคู่", data: "PROMPT_MATCH", displayText: "เริ่มจับคู่" } }
+            { type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "👤 จัดการ Owner", uri: "https://liff.line.me/2009523613-hLnRGrZC?mode=owner" } },
+            { type: "button", style: "secondary", height: "sm", action: { type: "uri", label: "📍 จัดการ Branch", uri: "https://liff.line.me/2009523613-hLnRGrZC?mode=branch" } },
+            { type: "button", style: "primary", color: "#1DB446", height: "sm", action: { type: "uri", label: "🔗 เริ่มจับคู่", uri: "https://liff.line.me/2009523613-hLnRGrZC?mode=match" } }
           ]
         }
       }
