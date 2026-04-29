@@ -105,8 +105,8 @@
       document.getElementById('confirm-btn').disabled = true;
 
       const matched = await fetch(`/api/owner-branches/${id}`).then(r => r.json());
-      originalBranchIds = new Set(matched.map(Number));
-      currentBranchIds = new Set(matched.map(Number));
+      originalBranchIds = new Set(matched);
+      currentBranchIds = new Set(matched);
 
       renderBranches();
       updateSummary();
@@ -119,14 +119,13 @@
       el.innerHTML = branches.map(b => `
         <label class="branch-item${currentBranchIds.has(b.id) ? ' checked' : ''}">
           <input type="checkbox" ${currentBranchIds.has(b.id) ? 'checked' : ''}
-                 onchange="toggleBranch(${b.id}, this.checked, this)" />
+                 onchange="toggleBranch('${b.id}', this.checked, this)" />
           ${b.branch_name}
         </label>
       `).join('');
     }
 
     function toggleBranch(branchId, checked, checkbox) {
-      branchId = Number(branchId);
       if (checked) {
         currentBranchIds.add(branchId);
       } else {
