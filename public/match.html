@@ -149,7 +149,7 @@
 
       if (parts.length > 0) {
         summaryEl.innerHTML = `รวม ${total} สาขา (${parts.join(' ')})`;
-        btn.textContent = `ยืนยัน (${parts.join(' ')})`;
+        btn.textContent = `ยืนยัน (${added > 0 ? '+' + added + ' สาขา' : ''}${added > 0 && removed > 0 ? ' ' : ''}${removed > 0 ? '-' + removed + ' สาขา' : ''})`;
       } else {
         summaryEl.textContent = `รวม ${total} สาขา (ไม่มีการเปลี่ยนแปลง)`;
         btn.textContent = 'ไม่มีการเปลี่ยนแปลง';
