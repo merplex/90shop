@@ -105,8 +105,8 @@
       document.getElementById('confirm-btn').disabled = true;
 
       const matched = await fetch(`/api/owner-branches/${id}`).then(r => r.json());
-      originalBranchIds = new Set(matched);
-      currentBranchIds = new Set(matched);
+      originalBranchIds = new Set(matched.map(Number));
+      currentBranchIds = new Set(matched.map(Number));
 
       renderBranches();
       updateSummary();
@@ -126,6 +126,7 @@
     }
 
     function toggleBranch(branchId, checked, checkbox) {
+      branchId = Number(branchId);
       if (checked) {
         currentBranchIds.add(branchId);
       } else {
