@@ -62,6 +62,19 @@ app.get('/api/owners', async (req, res) => {
   res.json(result.rows);
 });
 
+// debug endpoint — ดู branches + mapping ว่า orphan ไหม
+app.get('/api/debug/mapping', async (req, res) => {
+  const [branches, mapping] = await Promise.all([
+    pool.query('SELECT id, branch_name FROM branches ORDER BY id'),
+    pool.query(`SELECT m.owner_line_id, o.owner_name, m.branch_id, b.branch_name as mapped_branch
+                FROM owner_branch_mapping m
+                LEFT JOIN branch_owners o ON m.owner_line_id = o.owner_line_id
+                LEFT JOIN branches b ON m.branch_id = b.id
+                ORDER BY m.owner_line_id`)
+  ]);
+  res.json({ branches: branches.rows, mapping: mapping.rows });
+});
+
 app.get('/api/branches', async (req, res) => {
   const result = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
   res.json(result.rows);
