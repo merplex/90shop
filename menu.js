@@ -82,7 +82,27 @@ function getBranchSelectMenu(mapping) {
 
 async function sendBranchReport(event, branchId, branchName, pool, client) {
   try {
-    const res = await pool.query('SELECT * FROM get_branch_stats($1)', [branchId]);
+    const res = await pool.query(
+      `SELECT
+         machine_id,
+         SUM(coin) FILTER (WHERE period_start >= NOW() - INTERVAL '24 hours') as coin_day,
+         SUM(coin) FILTER (WHERE period_start >= NOW() - INTERVAL '7 days')   as coin_week,
+         SUM(coin) FILTER (WHERE period_start >= NOW() - INTERVAL '30 days')  as coin_month,
+         SUM(coin)                                                              as coin_all,
+         SUM(bank) FILTER (WHERE period_start >= NOW() - INTERVAL '24 hours') as bank_day,
+         SUM(bank) FILTER (WHERE period_start >= NOW() - INTERVAL '7 days')   as bank_week,
+         SUM(bank) FILTER (WHERE period_start >= NOW() - INTERVAL '30 days')  as bank_month,
+         SUM(bank)                                                              as bank_all,
+         SUM(qr)   FILTER (WHERE period_start >= NOW() - INTERVAL '24 hours') as qr_day,
+         SUM(qr)   FILTER (WHERE period_start >= NOW() - INTERVAL '7 days')   as qr_week,
+         SUM(qr)   FILTER (WHERE period_start >= NOW() - INTERVAL '30 days')  as qr_month,
+         SUM(qr)                                                                as qr_all
+       FROM hourly_summary
+       WHERE branch_id = $1
+       GROUP BY machine_id
+       ORDER BY machine_id`,
+      [branchId]
+    );
     const stats = res.rows || [];
 
     if (stats.length === 0) {
@@ -93,34 +113,23 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
     const branchSummary = {
       coin: { day: 0, week: 0, month: 0, all: 0 },
       bank: { day: 0, week: 0, month: 0, all: 0 },
-      qr: { day: 0, week: 0, month: 0, all: 0 }
+      qr:   { day: 0, week: 0, month: 0, all: 0 }
     };
 
+    const p = v => parseInt(v) || 0;
     stats.forEach(row => {
       const mId = row.machine_id;
-      const type = row.payment_type ? row.payment_type.toLowerCase() : 'coin';
-
-      if (!machineData[mId]) {
-        machineData[mId] = {
-          coin: { day: 0, week: 0, month: 0, all: 0 },
-          bank: { day: 0, week: 0, month: 0, all: 0 },
-          qr: { day: 0, week: 0, month: 0, all: 0 }
-        };
-      }
-
-      if (machineData[mId][type]) {
-          machineData[mId][type].day = parseInt(row.day_total);
-          machineData[mId][type].week = parseInt(row.week_total);
-          machineData[mId][type].month = parseInt(row.month_total);
-          machineData[mId][type].all = parseInt(row.all_total);
-      }
-
-      if (branchSummary[type]) {
-          branchSummary[type].day += parseInt(row.day_total);
-          branchSummary[type].week += parseInt(row.week_total);
-          branchSummary[type].month += parseInt(row.month_total);
-          branchSummary[type].all += parseInt(row.all_total);
-      }
+      machineData[mId] = {
+        coin: { day: p(row.coin_day), week: p(row.coin_week), month: p(row.coin_month), all: p(row.coin_all) },
+        bank: { day: p(row.bank_day), week: p(row.bank_week), month: p(row.bank_month), all: p(row.bank_all) },
+        qr:   { day: p(row.qr_day),   week: p(row.qr_week),   month: p(row.qr_month),   all: p(row.qr_all)   }
+      };
+      ['coin', 'bank', 'qr'].forEach(t => {
+        branchSummary[t].day   += machineData[mId][t].day;
+        branchSummary[t].week  += machineData[mId][t].week;
+        branchSummary[t].month += machineData[mId][t].month;
+        branchSummary[t].all   += machineData[mId][t].all;
+      });
     });
 
     const machineRows = [];
@@ -172,7 +181,21 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
 // --- 3. รายงานรายเดือน (SQL Version) ---
 async function sendYearlySummaryReport(event, pool, client) {
   try {
-    const res = await pool.query('SELECT * FROM get_owner_yearly_stats($1)', [event.source.userId]);
+    const res = await pool.query(
+      `SELECT
+         h.branch_id,
+         b.branch_name,
+         EXTRACT(YEAR  FROM h.period_start AT TIME ZONE 'Asia/Bangkok') as year,
+         EXTRACT(MONTH FROM h.period_start AT TIME ZONE 'Asia/Bangkok') as month,
+         SUM(h.coin + h.bank + h.qr) as total_amount
+       FROM hourly_summary h
+       JOIN branches b ON h.branch_id = b.id
+       JOIN owner_branch_mapping m ON m.branch_id = h.branch_id
+       WHERE m.owner_line_id = $1
+       GROUP BY h.branch_id, b.branch_name, year, month
+       ORDER BY h.branch_id, year, month`,
+      [event.source.userId]
+    );
     const stats = res.rows || [];
 
     if (stats.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลธุรกรรมค่ะ' });
@@ -236,7 +259,7 @@ async function handleMachineReportLogic(event, pool, client) {
 }
 
 async function sendMultiMachineSelector(event, branchId, branchName, selectedIds, pool, client) {
-  const res = await pool.query('SELECT DISTINCT machine_id FROM transactions WHERE branch_id = $1 ORDER BY machine_id', [branchId]);
+  const res = await pool.query('SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id', [branchId]);
   const uniqueMachines = (res.rows || []).map(r => r.machine_id);
 
   if (uniqueMachines.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: `ไม่พบเครื่องในสาขา ${branchName} ค่ะ` });
@@ -267,21 +290,15 @@ async function sendComparisonReport(event, idsStr, dateStr, pool, client) {
   try {
     const machineIds = idsStr.split(','); // แปลง "m1,m2" เป็น ["m1", "m2"]
     
-    // ปรับรูปแบบวันที่ให้ชัวร์สำหรับ Postgres
-    const startTime = `${dateStr} 00:00:00`;
-    const endTime = `${dateStr} 23:59:59`;
-    
     console.log(`[Compare] Date: ${dateStr}, IDs: ${idsStr}`);
 
-    // SQL: ใช้ ANY($1) เพื่อเช็กค่าใน List และกรองวันที่
     const res = await pool.query(
-      `SELECT machine_id, SUM(amount) as total 
-       FROM transactions 
-       WHERE machine_id = ANY($1) 
-       AND created_at >= $2::timestamp 
-       AND created_at <= $3::timestamp 
+      `SELECT machine_id, SUM(coin + bank + qr) as total
+       FROM hourly_summary
+       WHERE machine_id = ANY($1)
+       AND DATE(period_start AT TIME ZONE 'Asia/Bangkok') = $2::date
        GROUP BY machine_id`,
-      [machineIds, startTime, endTime]
+      [machineIds, dateStr]
     );
     
     const stats = res.rows || [];

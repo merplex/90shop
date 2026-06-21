@@ -113,6 +113,66 @@ app.delete('/api/branch/:id', async (req, res) => {
   res.json({ message: 'ลบสำเร็จ' });
 });
 
+// --- ESP32: รับยอดสรุปรายชั่วโมงจากเครื่อง ---
+// machine_id format: {BRANCH_CODE}_{NUMBER}  เช่น RABB01_01
+// unique key = (machine_id, period_start) — retry ด้วยข้อมูลเดิมปลอดภัย
+app.post('/api/transaction', express.json(), async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.ESP32_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const { machine_id, period_start, period_end, coin = 0, bank = 0, qr = 0 } = req.body;
+
+  if (!machine_id || !period_start || !period_end) {
+    return res.status(400).json({ error: 'ต้องมี: machine_id, period_start, period_end' });
+  }
+
+  const underscoreIdx = machine_id.lastIndexOf('_');
+  if (underscoreIdx <= 0) {
+    return res.status(400).json({ error: 'machine_id format ผิด ต้องเป็น {BRANCH}_{NUMBER} เช่น RABB01_01' });
+  }
+  const branchCode = machine_id.substring(0, underscoreIdx);
+
+  try {
+    const branchRes = await pool.query('SELECT id FROM branches WHERE branch_name = $1', [branchCode]);
+    if (branchRes.rows.length === 0) {
+      return res.status(404).json({ error: `ไม่พบสาขา: ${branchCode}` });
+    }
+    const branchId = branchRes.rows[0].id;
+
+    const insertRes = await pool.query(
+      `INSERT INTO hourly_summary (machine_id, branch_id, period_start, period_end, coin, bank, qr)
+       VALUES ($1, $2, $3::timestamptz, $4::timestamptz, $5, $6, $7)
+       ON CONFLICT (machine_id, period_start) DO NOTHING`,
+      [machine_id, branchId, period_start, period_end, parseInt(coin)||0, parseInt(bank)||0, parseInt(qr)||0]
+    );
+
+    const inserted = insertRes.rowCount > 0;
+    return res.json({ success: true, inserted, message: inserted ? 'บันทึกสำเร็จ' : 'ข้อมูลซ้ำ ข้ามแล้ว' });
+  } catch (err) {
+    console.error('[ESP32 Transaction Error]', err.message);
+    return res.status(500).json({ error: 'เกิดข้อผิดพลาดใน server' });
+  }
+});
+
+// ESP32 ถาม: "server รู้จักข้อมูลของเครื่องนี้ถึงเมื่อไหร่แล้ว?"
+app.get('/api/machine-status/:machineId', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT MAX(period_end) as last_period_end FROM hourly_summary WHERE machine_id = $1',
+      [req.params.machineId]
+    );
+    return res.json({
+      machine_id: req.params.machineId,
+      last_period_end: result.rows[0].last_period_end || null
+    });
+  } catch (err) {
+    console.error('[Machine Status Error]', err.message);
+    return res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
+  }
+});
+
 app.post('/api/match', express.json(), async (req, res) => {
   const { ownerId, addBranchIds, removeBranchIds } = req.body;
   if (!ownerId) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
