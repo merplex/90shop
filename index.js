@@ -135,10 +135,12 @@ app.post('/api/transaction', express.json(), async (req, res) => {
   const branchCode = machine_id.substring(0, underscoreIdx);
 
   try {
-    const branchRes = await pool.query('SELECT id FROM branches WHERE branch_name = $1', [branchCode]);
-    if (branchRes.rows.length === 0) {
-      return res.status(404).json({ error: `ไม่พบสาขา: ${branchCode}` });
-    }
+    const branchRes = await pool.query(
+      `INSERT INTO branches (branch_name) VALUES ($1)
+       ON CONFLICT (branch_name) DO UPDATE SET branch_name = EXCLUDED.branch_name
+       RETURNING id`,
+      [branchCode]
+    );
     const branchId = branchRes.rows[0].id;
 
     const insertRes = await pool.query(
