@@ -59,6 +59,7 @@
     const mode = params.get('mode') || 'owner';
 
     if (mode === 'match') { window.location.replace('/match.html'); }
+    if (mode === 'balance') { window.location.replace('/balance.html'); }
 
     async function init() {
       await liff.init({ liffId: '2009523613-hLnRGrZC' });

@@ -36,6 +36,19 @@ const pool = new Pool({
 const app = express();
 app.use(express.static('public'));
 
+pool.query(`
+  CREATE TABLE IF NOT EXISTS balance_requests (
+    id SERIAL PRIMARY KEY,
+    machine_id TEXT NOT NULL,
+    branch_id INTEGER REFERENCES branches(id),
+    amount INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    requested_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    applied_at TIMESTAMPTZ
+  )
+`).catch(err => console.error('[DB Init Error]', err.message));
+
 app.post('/api/add-owner', express.json(), async (req, res) => {
   const { userId, name } = req.body;
   if (!userId || !name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
@@ -181,6 +194,59 @@ app.get('/api/machine-status/:machineId', async (req, res) => {
     console.error('[Machine Status Error]', err.message);
     return res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
   }
+});
+
+app.get('/api/machines/:branchId', async (req, res) => {
+  const result = await pool.query(
+    'SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id',
+    [req.params.branchId]
+  );
+  res.json(result.rows.map(r => r.machine_id));
+});
+
+// --- จัดการยอดเงิน: LIFF ส่งคำสั่งเติมยอดให้เครื่อง ---
+app.post('/api/balance/request', express.json(), async (req, res) => {
+  const { machineId, branchId, amount, requestedBy } = req.body;
+  const amt = parseInt(amount, 10);
+  if (!machineId || !branchId || !amt || amt <= 0) {
+    return res.status(400).json({ message: 'ข้อมูลไม่ครบหรือจำนวนเงินไม่ถูกต้อง' });
+  }
+  await pool.query(
+    'INSERT INTO balance_requests (machine_id, branch_id, amount, requested_by) VALUES ($1, $2, $3, $4)',
+    [machineId, branchId, amt, requestedBy || null]
+  );
+  return res.json({ message: `ส่งคำสั่งเติม ฿${amt.toLocaleString()} ไปยังเครื่อง ${machineId} สำเร็จ` });
+});
+
+// ESP32 ถาม: "มีคำสั่งเติมยอดที่ยังไม่ได้ทำสำหรับเครื่องนี้ไหม?"
+app.get('/api/balance/pending/:machineId', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.ESP32_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const result = await pool.query(
+    `SELECT id, amount FROM balance_requests
+     WHERE machine_id = $1 AND status = 'pending'
+     ORDER BY created_at ASC LIMIT 1`,
+    [req.params.machineId]
+  );
+  if (result.rows.length === 0) return res.json({ id: null });
+  return res.json(result.rows[0]);
+});
+
+// ESP32 ยืนยัน: "เติมยอดที่ hmi สำเร็จแล้ว"
+app.post('/api/balance/ack', express.json(), async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.ESP32_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'ต้องมี id' });
+  const result = await pool.query(
+    `UPDATE balance_requests SET status = 'done', applied_at = NOW() WHERE id = $1 AND status = 'pending'`,
+    [id]
+  );
+  return res.json({ success: result.rowCount > 0 });
 });
 
 app.post('/api/match', express.json(), async (req, res) => {
