@@ -35,7 +35,8 @@ function getReportSelectionMenu() {
       contents: [
         { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "รายงานต่อสาขา", text: "REPORT_BRANCH_SELECT" } },
         { type: "button", style: "secondary", action: { type: "message", label: "รายงานรวมรายเดือน", text: "REPORT_MONTHLY_TOTAL" } },
-        { type: "button", style: "secondary", action: { type: "message", label: "รายงานต่อเครื่อง", text: "REPORT_MACHINE_SELECT" } }
+        { type: "button", style: "secondary", action: { type: "message", label: "รายงานต่อเครื่อง", text: "REPORT_MACHINE_SELECT" } },
+        { type: "button", style: "primary", color: "#FFB74D", action: { type: "uri", label: "จัดการยอดเงิน", uri: "https://liff.line.me/2009523613-hLnRGrZC?mode=balance" } }
       ]
     }
   };

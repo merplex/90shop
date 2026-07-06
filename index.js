@@ -17,6 +17,7 @@ const {
 
 const express = require('express');
 const line = require('@line/bot-sdk');
+const axios = require('axios');
 const { Pool } = require('pg'); // เปลี่ยนเป็น pg (Postgres)
 require('dotenv').config();
 
@@ -35,6 +36,19 @@ const pool = new Pool({
 
 const app = express();
 app.use(express.static('public'));
+
+pool.query(`
+  CREATE TABLE IF NOT EXISTS balance_requests (
+    id SERIAL PRIMARY KEY,
+    machine_id TEXT NOT NULL,
+    branch_id INTEGER REFERENCES branches(id),
+    amount INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    requested_by TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    confirmed_at TIMESTAMPTZ
+  )
+`).catch(err => console.error('[DB Init Error]', err.message));
 
 app.post('/api/add-owner', express.json(), async (req, res) => {
   const { userId, name } = req.body;
@@ -180,6 +194,101 @@ app.get('/api/machine-status/:machineId', async (req, res) => {
   } catch (err) {
     console.error('[Machine Status Error]', err.message);
     return res.status(500).json({ error: 'เกิดข้อผิดพลาด' });
+  }
+});
+
+// --- จัดการยอดเงิน: รายชื่อเครื่องของสาขา (สำหรับหน้าเลือกสาขา/เครื่อง) ---
+app.get('/api/machines/:branchId', async (req, res) => {
+  const result = await pool.query(
+    'SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id',
+    [req.params.branchId]
+  );
+  res.json(result.rows.map(r => r.machine_id));
+});
+
+// ยืนยันตัวตนกับ LINE เอง (ห้ามเชื่อ userId ที่ client ส่งมาตรงๆ เพราะปลอมได้)
+async function verifyLineUser(accessToken) {
+  if (!accessToken) return null;
+  try {
+    const res = await axios.get('https://api.line.me/v2/profile', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    return res.data.userId || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// --- จัดการยอดเงิน: LIFF ส่งคำสั่งเติมยอดให้เครื่อง (สร้างรายการ pending) ---
+// ต้องเป็น super admin หรือเจ้าของสาขานั้นจริง (ยืนยันด้วย access token กับ LINE ก่อนเช็คสิทธิ์)
+app.post('/api/balance/request', express.json(), async (req, res) => {
+  const { machineId, branchId, amount, accessToken } = req.body;
+  const amt = parseInt(amount, 10);
+  if (!machineId || !branchId || !amt || amt <= 0) {
+    return res.status(400).json({ message: 'ข้อมูลไม่ครบหรือจำนวนเงินไม่ถูกต้อง' });
+  }
+
+  const userId = await verifyLineUser(accessToken);
+  if (!userId) {
+    return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
+  }
+
+  const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
+  if (superAdmin.rows.length === 0) {
+    const ownerMatch = await pool.query(
+      'SELECT 1 FROM owner_branch_mapping WHERE owner_line_id = $1 AND branch_id = $2',
+      [userId, branchId]
+    );
+    if (ownerMatch.rows.length === 0) {
+      return res.status(403).json({ message: 'คุณไม่มีสิทธิ์จัดการยอดเงินของสาขานี้' });
+    }
+  }
+
+  await pool.query(
+    'INSERT INTO balance_requests (machine_id, branch_id, amount, requested_by) VALUES ($1, $2, $3, $4)',
+    [machineId, branchId, amt, userId]
+  );
+  return res.json({ message: `ส่งคำสั่งเติม ฿${amt.toLocaleString()} ไปยังเครื่อง ${machineId} สำเร็จ` });
+});
+
+// --- ESP32/HMI: endpoint เดียวกับโปรเจค 90railway (/machine/check, /machine/confirm) ---
+// ใช้ contract เดิมเป๊ะ (query param, ชื่อ field "points", ไม่ต้องใช้ x-api-key)
+// เพื่อให้เฟิร์มแวร์ ESP32 ที่มีอยู่แล้วทำงานกับ 90shop ได้โดยไม่ต้องแก้โค้ดฝั่งเครื่อง
+app.get('/machine/check', async (req, res) => {
+  const machine_id = req.query.machine_id || '';
+  try {
+    const result = await pool.query(
+      `SELECT id, amount, status FROM balance_requests
+       WHERE machine_id = $1 AND (
+           (status = 'pending' AND created_at >= NOW() - INTERVAL '70 seconds')
+           OR (status = 'success' AND confirmed_at >= NOW() - INTERVAL '30 seconds')
+       )
+       ORDER BY created_at DESC LIMIT 1`,
+      [machine_id]
+    );
+    if (result.rows.length === 0) return res.json({ status: 'idle' });
+    const row = result.rows[0];
+    if (row.status === 'success') return res.json({ status: 'success', log_id: row.id, points: row.amount });
+    res.json({ status: 'pending', log_id: row.id, points: row.amount });
+  } catch (e) {
+    console.error('[machine/check Error]', e.message);
+    res.status(500).json({ status: 'error' });
+  }
+});
+
+app.post('/machine/confirm', express.json(), async (req, res) => {
+  const { log_id } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE balance_requests SET status = 'success', confirmed_at = NOW()
+       WHERE id = $1 AND status = 'pending' RETURNING id`,
+      [log_id]
+    );
+    if (result.rows.length === 0) return res.status(400).json({ success: false });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[machine/confirm Error]', e.message);
+    res.status(500).json({ success: false });
   }
 });
 
