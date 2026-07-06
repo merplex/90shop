@@ -196,12 +196,20 @@ app.get('/api/machine-status/:machineId', async (req, res) => {
   }
 });
 
-app.get('/api/machines/:branchId', async (req, res) => {
-  const result = await pool.query(
-    'SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id',
-    [req.params.branchId]
-  );
-  res.json(result.rows.map(r => r.machine_id));
+// --- จัดการยอดเงิน: สแกน QR ที่เครื่องเพื่อรู้ว่าจะส่งคำสั่งไปเครื่อง/สาขาไหน ---
+// machine_id format: {BRANCH_CODE}_{NUMBER} เช่น branch_01 → branch = "branch", เครื่อง = "01"
+app.get('/api/machine-info/:machineId', async (req, res) => {
+  const machineId = req.params.machineId;
+  const underscoreIdx = machineId.lastIndexOf('_');
+  if (underscoreIdx <= 0) {
+    return res.status(400).json({ message: 'รหัส QR ไม่ถูกต้อง (ต้องเป็นรูปแบบ {สาขา}_{เลขเครื่อง})' });
+  }
+  const branchCode = machineId.substring(0, underscoreIdx);
+  const result = await pool.query('SELECT id, branch_name FROM branches WHERE branch_name = $1', [branchCode]);
+  if (result.rows.length === 0) {
+    return res.status(404).json({ message: `ไม่พบสาขาของเครื่อง ${machineId}` });
+  }
+  return res.json({ machine_id: machineId, branch_id: result.rows[0].id, branch_name: result.rows[0].branch_name });
 });
 
 // --- จัดการยอดเงิน: LIFF ส่งคำสั่งเติมยอดให้เครื่อง ---
