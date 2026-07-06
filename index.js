@@ -45,7 +45,7 @@ pool.query(`
     status TEXT NOT NULL DEFAULT 'pending',
     requested_by TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    applied_at TIMESTAMPTZ
+    confirmed_at TIMESTAMPTZ
   )
 `).catch(err => console.error('[DB Init Error]', err.message));
 
@@ -196,23 +196,16 @@ app.get('/api/machine-status/:machineId', async (req, res) => {
   }
 });
 
-// --- จัดการยอดเงิน: สแกน QR ที่เครื่องเพื่อรู้ว่าจะส่งคำสั่งไปเครื่อง/สาขาไหน ---
-// machine_id format: {BRANCH_CODE}_{NUMBER} เช่น branch_01 → branch = "branch", เครื่อง = "01"
-app.get('/api/machine-info/:machineId', async (req, res) => {
-  const machineId = req.params.machineId;
-  const underscoreIdx = machineId.lastIndexOf('_');
-  if (underscoreIdx <= 0) {
-    return res.status(400).json({ message: 'รหัส QR ไม่ถูกต้อง (ต้องเป็นรูปแบบ {สาขา}_{เลขเครื่อง})' });
-  }
-  const branchCode = machineId.substring(0, underscoreIdx);
-  const result = await pool.query('SELECT id, branch_name FROM branches WHERE branch_name = $1', [branchCode]);
-  if (result.rows.length === 0) {
-    return res.status(404).json({ message: `ไม่พบสาขาของเครื่อง ${machineId}` });
-  }
-  return res.json({ machine_id: machineId, branch_id: result.rows[0].id, branch_name: result.rows[0].branch_name });
+// --- จัดการยอดเงิน: รายชื่อเครื่องของสาขา (สำหรับหน้าเลือกสาขา/เครื่อง) ---
+app.get('/api/machines/:branchId', async (req, res) => {
+  const result = await pool.query(
+    'SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id',
+    [req.params.branchId]
+  );
+  res.json(result.rows.map(r => r.machine_id));
 });
 
-// --- จัดการยอดเงิน: LIFF ส่งคำสั่งเติมยอดให้เครื่อง ---
+// --- จัดการยอดเงิน: LIFF ส่งคำสั่งเติมยอดให้เครื่อง (สร้างรายการ pending) ---
 app.post('/api/balance/request', express.json(), async (req, res) => {
   const { machineId, branchId, amount, requestedBy } = req.body;
   const amt = parseInt(amount, 10);
@@ -226,35 +219,45 @@ app.post('/api/balance/request', express.json(), async (req, res) => {
   return res.json({ message: `ส่งคำสั่งเติม ฿${amt.toLocaleString()} ไปยังเครื่อง ${machineId} สำเร็จ` });
 });
 
-// ESP32 ถาม: "มีคำสั่งเติมยอดที่ยังไม่ได้ทำสำหรับเครื่องนี้ไหม?"
-app.get('/api/balance/pending/:machineId', async (req, res) => {
-  const apiKey = req.headers['x-api-key'];
-  if (!apiKey || apiKey !== process.env.ESP32_API_KEY) {
-    return res.status(401).json({ error: 'Unauthorized' });
+// --- ESP32/HMI: endpoint เดียวกับโปรเจค 90railway (/machine/check, /machine/confirm) ---
+// ใช้ contract เดิมเป๊ะ (query param, ชื่อ field "points", ไม่ต้องใช้ x-api-key)
+// เพื่อให้เฟิร์มแวร์ ESP32 ที่มีอยู่แล้วทำงานกับ 90shop ได้โดยไม่ต้องแก้โค้ดฝั่งเครื่อง
+app.get('/machine/check', async (req, res) => {
+  const machine_id = req.query.machine_id || '';
+  try {
+    const result = await pool.query(
+      `SELECT id, amount, status FROM balance_requests
+       WHERE machine_id = $1 AND (
+           (status = 'pending' AND created_at >= NOW() - INTERVAL '70 seconds')
+           OR (status = 'success' AND confirmed_at >= NOW() - INTERVAL '30 seconds')
+       )
+       ORDER BY created_at DESC LIMIT 1`,
+      [machine_id]
+    );
+    if (result.rows.length === 0) return res.json({ status: 'idle' });
+    const row = result.rows[0];
+    if (row.status === 'success') return res.json({ status: 'success', log_id: row.id, points: row.amount });
+    res.json({ status: 'pending', log_id: row.id, points: row.amount });
+  } catch (e) {
+    console.error('[machine/check Error]', e.message);
+    res.status(500).json({ status: 'error' });
   }
-  const result = await pool.query(
-    `SELECT id, amount FROM balance_requests
-     WHERE machine_id = $1 AND status = 'pending'
-     ORDER BY created_at ASC LIMIT 1`,
-    [req.params.machineId]
-  );
-  if (result.rows.length === 0) return res.json({ id: null });
-  return res.json(result.rows[0]);
 });
 
-// ESP32 ยืนยัน: "เติมยอดที่ hmi สำเร็จแล้ว"
-app.post('/api/balance/ack', express.json(), async (req, res) => {
-  const apiKey = req.headers['x-api-key'];
-  if (!apiKey || apiKey !== process.env.ESP32_API_KEY) {
-    return res.status(401).json({ error: 'Unauthorized' });
+app.post('/machine/confirm', express.json(), async (req, res) => {
+  const { log_id } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE balance_requests SET status = 'success', confirmed_at = NOW()
+       WHERE id = $1 AND status = 'pending' RETURNING id`,
+      [log_id]
+    );
+    if (result.rows.length === 0) return res.status(400).json({ success: false });
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[machine/confirm Error]', e.message);
+    res.status(500).json({ success: false });
   }
-  const { id } = req.body;
-  if (!id) return res.status(400).json({ error: 'ต้องมี id' });
-  const result = await pool.query(
-    `UPDATE balance_requests SET status = 'done', applied_at = NOW() WHERE id = $1 AND status = 'pending'`,
-    [id]
-  );
-  return res.json({ success: result.rowCount > 0 });
 });
 
 app.post('/api/match', express.json(), async (req, res) => {
