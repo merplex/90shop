@@ -197,15 +197,6 @@ app.get('/api/machine-status/:machineId', async (req, res) => {
   }
 });
 
-// --- จัดการยอดเงิน: รายชื่อเครื่องของสาขา (สำหรับหน้าเลือกสาขา/เครื่อง) ---
-app.get('/api/machines/:branchId', async (req, res) => {
-  const result = await pool.query(
-    'SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id',
-    [req.params.branchId]
-  );
-  res.json(result.rows.map(r => r.machine_id));
-});
-
 // ยืนยันตัวตนกับ LINE เอง (ห้ามเชื่อ userId ที่ client ส่งมาตรงๆ เพราะปลอมได้)
 async function verifyLineUser(accessToken) {
   if (!accessToken) return null;
@@ -218,6 +209,41 @@ async function verifyLineUser(accessToken) {
     return null;
   }
 }
+
+// --- จัดการยอดเงิน: รายชื่อสาขาเฉพาะของ LINE user นี้ (super admin เห็นทุกสาขา) ---
+app.get('/api/my-branches', async (req, res) => {
+  const authHeader = req.headers['authorization'] || '';
+  const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+
+  const userId = await verifyLineUser(accessToken);
+  if (!userId) {
+    return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
+  }
+
+  const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
+  if (superAdmin.rows.length > 0) {
+    const all = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
+    return res.json(all.rows);
+  }
+
+  const owned = await pool.query(
+    `SELECT b.id, b.branch_name FROM owner_branch_mapping m
+     JOIN branches b ON m.branch_id = b.id
+     WHERE m.owner_line_id = $1
+     ORDER BY b.branch_name`,
+    [userId]
+  );
+  res.json(owned.rows);
+});
+
+// --- จัดการยอดเงิน: รายชื่อเครื่องของสาขา (สำหรับหน้าเลือกสาขา/เครื่อง) ---
+app.get('/api/machines/:branchId', async (req, res) => {
+  const result = await pool.query(
+    'SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id',
+    [req.params.branchId]
+  );
+  res.json(result.rows.map(r => r.machine_id));
+});
 
 // --- จัดการยอดเงิน: LIFF ส่งคำสั่งเติมยอดให้เครื่อง (สร้างรายการ pending) ---
 // ต้องเป็น super admin หรือเจ้าของสาขานั้นจริง (ยืนยันด้วย access token กับ LINE ก่อนเช็คสิทธิ์)

@@ -84,7 +84,20 @@
       await liff.init({ liffId: '2009523613-hLnRGrZC' });
       if (!liff.isLoggedIn()) { liff.login(); return; }
 
-      branches = await fetch('/api/branches').then(r => r.json());
+      try {
+        const res = await fetch('/api/my-branches', {
+          headers: { Authorization: `Bearer ${liff.getAccessToken()}` }
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          document.getElementById('branch-list').innerHTML = `<div class="branch-empty">${data.message || 'โหลดสาขาไม่สำเร็จ'}</div>`;
+          return;
+        }
+        branches = data;
+      } catch (e) {
+        document.getElementById('branch-list').innerHTML = '<div class="branch-empty">โหลดสาขาไม่สำเร็จ กรุณาลองใหม่</div>';
+        return;
+      }
       renderBranches();
     }
 
@@ -107,8 +120,15 @@
 
       document.getElementById('machine-list').innerHTML = '<div class="loading">กำลังโหลด...</div>';
 
-      machineIds = await fetch(`/api/machines/${id}`).then(r => r.json());
-      renderMachines();
+      try {
+        const res = await fetch(`/api/machines/${id}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'โหลดไม่สำเร็จ');
+        machineIds = data;
+        renderMachines();
+      } catch (e) {
+        document.getElementById('machine-list').innerHTML = '<div class="machine-empty">โหลดรายการเครื่องไม่สำเร็จ กรุณาลองใหม่</div>';
+      }
     }
 
     function stripBranchPrefix(machineId) {
