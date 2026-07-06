@@ -341,10 +341,11 @@ app.post('/api/balance/request', express.json(), async (req, res) => {
       }
     }
 
-    await pool.query(
-      'INSERT INTO balance_requests (machine_id, branch_id, amount, requested_by) VALUES ($1, $2, $3, $4)',
+    const inserted = await pool.query(
+      'INSERT INTO balance_requests (machine_id, branch_id, amount, requested_by) VALUES ($1, $2, $3, $4) RETURNING id',
       [machineId, branchId, amt, userId]
     );
+    console.log(`[Balance] Queued id=${inserted.rows[0].id} machine=${machineId} amount=${amt} by=${userId}`);
     return res.json({ message: `ส่งคำสั่งเติม ฿${amt.toLocaleString()} ไปยังเครื่อง ${machineId} สำเร็จ` });
   } catch (e) {
     console.error('[balance/request Error]', e.message);
@@ -367,8 +368,12 @@ app.get('/machine/check', async (req, res) => {
        ORDER BY created_at DESC LIMIT 1`,
       [machine_id]
     );
-    if (result.rows.length === 0) return res.json({ status: 'idle' });
+    if (result.rows.length === 0) {
+      console.log(`[machine/check] machine_id=${machine_id} -> idle`);
+      return res.json({ status: 'idle' });
+    }
     const row = result.rows[0];
+    console.log(`[machine/check] machine_id=${machine_id} -> ${row.status} (log_id=${row.id})`);
     if (row.status === 'success') return res.json({ status: 'success', log_id: row.id, points: row.amount });
     res.json({ status: 'pending', log_id: row.id, points: row.amount });
   } catch (e) {
@@ -386,6 +391,7 @@ app.post('/machine/confirm', express.json(), async (req, res) => {
       [log_id]
     );
     if (result.rows.length === 0) return res.status(400).json({ success: false });
+    console.log(`[machine/confirm] log_id=${log_id} confirmed`);
     res.json({ success: true });
   } catch (e) {
     console.error('[machine/confirm Error]', e.message);
