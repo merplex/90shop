@@ -75,15 +75,19 @@
   </div>
 
   <script>
-    // ชั่วคราวสำหรับ debug: โชว์ error เป็น alert เพราะเปิดจากในแอป LINE ดู console ไม่ได้
-    window.onerror = function (msg, url, line, col, err) {
-      alert('JS Error: ' + msg + ' (บรรทัด ' + line + ')');
-    };
-
     let branches = [];
     let machineIds = [];
     let selectedBranch = null;
     let selectedMachineId = null;
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
     async function init() {
       await liff.init({ liffId: '2009523613-hLnRGrZC' });
@@ -95,7 +99,7 @@
         });
         const data = await res.json();
         if (!res.ok) {
-          document.getElementById('branch-list').innerHTML = `<div class="branch-empty">${data.message || 'โหลดสาขาไม่สำเร็จ'}</div>`;
+          document.getElementById('branch-list').innerHTML = `<div class="branch-empty">${escapeHtml(data.message || 'โหลดสาขาไม่สำเร็จ')}</div>`;
           return;
         }
         branches = data;
@@ -110,15 +114,19 @@
       const el = document.getElementById('branch-list');
       if (branches.length === 0) { el.innerHTML = '<div class="branch-empty">ไม่มีข้อมูลสาขา</div>'; return; }
       el.innerHTML = branches.map(b => `
-        <div class="branch-item${selectedBranch && selectedBranch.id === b.id ? ' active' : ''}"
-             onclick="selectBranch(${b.id}, '${b.branch_name.replace(/'/g, "\\'")}')">
-          ${b.branch_name}
+        <div class="branch-item${selectedBranch && selectedBranch.id === b.id ? ' active' : ''}" data-id="${b.id}" data-name="${escapeHtml(b.branch_name)}">
+          ${escapeHtml(b.branch_name)}
         </div>
       `).join('');
     }
 
+    document.getElementById('branch-list').addEventListener('click', (e) => {
+      const item = e.target.closest('.branch-item');
+      if (!item || !item.dataset.id) return;
+      selectBranch(parseInt(item.dataset.id, 10), item.dataset.name);
+    });
+
     async function selectBranch(id, name) {
-      alert('debug: selectBranch id=' + id + ' name=' + name); // TODO ลบออกหลัง debug เสร็จ
       selectedBranch = { id, branch_name: name };
       selectedMachineId = null;
       renderBranches();
@@ -148,12 +156,17 @@
       const el = document.getElementById('machine-list');
       if (machineIds.length === 0) { el.innerHTML = '<div class="machine-empty">ไม่พบเครื่องในสาขานี้</div>'; return; }
       el.innerHTML = machineIds.map(mId => `
-        <div class="machine-item${selectedMachineId === mId ? ' active' : ''}"
-             onclick="selectMachine('${mId}')">
-          ${stripBranchPrefix(mId)}
+        <div class="machine-item${selectedMachineId === mId ? ' active' : ''}" data-id="${escapeHtml(mId)}">
+          ${escapeHtml(stripBranchPrefix(mId))}
         </div>
       `).join('');
     }
+
+    document.getElementById('machine-list').addEventListener('click', (e) => {
+      const item = e.target.closest('.machine-item');
+      if (!item || !item.dataset.id) return;
+      selectMachine(item.dataset.id);
+    });
 
     function selectMachine(mId) {
       selectedMachineId = mId;
