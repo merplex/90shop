@@ -75,6 +75,11 @@
   </div>
 
   <script>
+    // ชั่วคราวสำหรับ debug: โชว์ error เป็น alert เพราะเปิดจากในแอป LINE ดู console ไม่ได้
+    window.onerror = function (msg, url, line, col, err) {
+      alert('JS Error: ' + msg + ' (บรรทัด ' + line + ')');
+    };
+
     let branches = [];
     let machineIds = [];
     let selectedBranch = null;
@@ -113,6 +118,7 @@
     }
 
     async function selectBranch(id, name) {
+      alert('debug: selectBranch id=' + id + ' name=' + name); // TODO ลบออกหลัง debug เสร็จ
       selectedBranch = { id, branch_name: name };
       selectedMachineId = null;
       renderBranches();
