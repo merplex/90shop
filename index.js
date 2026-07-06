@@ -326,7 +326,7 @@ app.get('/machine/check', async (req, res) => {
     const result = await pool.query(
       `SELECT id, amount, status FROM balance_requests
        WHERE machine_id = $1 AND (
-           (status = 'pending' AND created_at >= NOW() - INTERVAL '70 seconds')
+           status = 'pending'
            OR (status = 'success' AND confirmed_at >= NOW() - INTERVAL '30 seconds')
        )
        ORDER BY created_at DESC LIMIT 1`,
