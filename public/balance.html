@@ -169,7 +169,6 @@
       btn.textContent = 'กำลังส่ง...';
 
       try {
-        const profile = await liff.getProfile().catch(() => null);
         const res = await fetch('/api/balance/request', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -177,7 +176,7 @@
             machineId: selectedMachineId,
             branchId: selectedBranch.id,
             amount,
-            requestedBy: profile ? profile.userId : null
+            accessToken: liff.getAccessToken()
           })
         });
         const data = await res.json();
