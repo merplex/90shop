@@ -108,6 +108,21 @@ app.post('/api/point-event', express.json(), async (req, res) => {
   }
 });
 
+// เครื่องที่ไม่เคย poll เข้ามาถาม ทำให้คำขอค้างเป็น pending ตลอดไป - กวาดทิ้งเป็น expired เป็นระยะ
+setInterval(async () => {
+  try {
+    const result = await pool.query(
+      `UPDATE balance_requests SET status = 'expired'
+       WHERE status = 'pending' AND created_at < NOW() - INTERVAL '3 minutes'`
+    );
+    if (result.rowCount > 0) {
+      console.log(`[Balance Expiry Sweep] marked ${result.rowCount} stale pending request(s) as expired`);
+    }
+  } catch (e) {
+    console.error('[Balance Expiry Sweep Error]', e.message);
+  }
+}, 60 * 1000);
+
 app.post('/api/add-owner', express.json(), async (req, res) => {
   const { userId, name } = req.body;
   if (!userId || !name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
