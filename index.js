@@ -11,8 +11,11 @@ const {
   sendDateSelector,
   sendMachineDetailReport,
   sendComparisonReport,
-  ALPHABET_GROUPS, 
-  chunkArray 
+  getPointReportMenu,
+  handlePointReportLogic,
+  sendPointReport,
+  ALPHABET_GROUPS,
+  chunkArray
 } = require('./menu');
 
 const express = require('express');
@@ -56,6 +59,54 @@ pool.query(`
     confirmed_at TIMESTAMPTZ
   )
 `).catch(err => console.error('[DB Init Error]', err.message));
+
+pool.query(`
+  CREATE TABLE IF NOT EXISTS point_events (
+    id SERIAL PRIMARY KEY,
+    machine_id TEXT NOT NULL,
+    branch_id UUID REFERENCES branches(id),
+    points INTEGER NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('earn', 'redeem')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )
+`).catch(err => console.error('[DB Init Error]', err.message));
+
+// --- 90railway: รายงานยอดสะสม/ใช้แต้ม แยกตามสาขา (ไม่ผูกกับ LINE user) ---
+// machine_id format เดียวกับ /api/transaction: {BRANCH_CODE}_{NUMBER}
+app.post('/api/point-event', express.json(), async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey || apiKey !== process.env.ESP32_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const { machine_id, points, type } = req.body;
+  if (!machine_id || !points || !['earn', 'redeem'].includes(type)) {
+    return res.status(400).json({ error: 'ต้องมี: machine_id, points, type (earn|redeem)' });
+  }
+
+  const underscoreIdx = machine_id.lastIndexOf('_');
+  if (underscoreIdx <= 0) {
+    return res.status(400).json({ error: 'machine_id format ผิด ต้องเป็น {BRANCH}_{NUMBER} เช่น RABB01_01' });
+  }
+  const branchCode = machine_id.substring(0, underscoreIdx);
+
+  try {
+    let branchRes = await pool.query('SELECT id FROM branches WHERE branch_name = $1', [branchCode]);
+    if (branchRes.rows.length === 0) {
+      branchRes = await pool.query('INSERT INTO branches (branch_name) VALUES ($1) RETURNING id', [branchCode]);
+    }
+    const branchId = branchRes.rows[0].id;
+
+    await pool.query(
+      'INSERT INTO point_events (machine_id, branch_id, points, type) VALUES ($1, $2, $3, $4)',
+      [machine_id, branchId, parseInt(points), type]
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[Point Event Error]', err.message);
+    return res.status(500).json({ error: 'เกิดข้อผิดพลาดใน server' });
+  }
+});
 
 app.post('/api/add-owner', express.json(), async (req, res) => {
   const { userId, name } = req.body;
@@ -423,7 +474,25 @@ async function handleEvent(event) {
   if (userText === 'REPORT_MACHINE_SELECT') {
     return handleMachineReportLogic(event, pool, client);
   }
-  
+
+  if (userText === 'POINT_REPORT_MENU') {
+    return client.replyMessage(event.replyToken, {
+      type: "flex",
+      altText: "รายงานแต้มสะสม",
+      contents: getPointReportMenu()
+    });
+  }
+  if (userText.startsWith('POINT_REPORT_SELECT:')) {
+    const type = userText.split(':')[1];
+    return handlePointReportLogic(event, type, pool, client);
+  }
+  if (userText.startsWith('VIEW_POINT_REPORT:')) {
+    const rawData = userText.replace('VIEW_POINT_REPORT:', '');
+    const [type, branchId, branchName] = rawData.split('|');
+    return sendPointReport(event, type, branchId, branchName, pool, client);
+  }
+
+
   if (userText.startsWith('SELECT_MACHINE_BRANCH:')) {
     const parts = userText.split(':')[1].split('|');
     return sendMultiMachineSelector(event, parts[0], parts[1], [], pool, client);

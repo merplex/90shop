@@ -36,6 +36,7 @@ function getReportSelectionMenu() {
         { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "รายงานต่อสาขา", text: "REPORT_BRANCH_SELECT" } },
         { type: "button", style: "secondary", action: { type: "message", label: "รายงานรวมรายเดือน", text: "REPORT_MONTHLY_TOTAL" } },
         { type: "button", style: "secondary", action: { type: "message", label: "รายงานต่อเครื่อง", text: "REPORT_MACHINE_SELECT" } },
+        { type: "button", style: "primary", color: "#9C27B0", action: { type: "message", label: "รายงานแต้มสะสม", text: "POINT_REPORT_MENU" } },
         { type: "button", style: "primary", color: "#FFB74D", action: { type: "uri", label: "จัดการยอดเงิน", uri: "https://liff.line.me/2009523613-hLnRGrZC?mode=balance" } }
       ]
     }
@@ -175,6 +176,134 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
     return client.replyMessage(event.replyToken, [
       { type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines },
       { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }
+    ]);
+  } catch (err) { console.error(err); }
+}
+
+// --- 2.5 รายงานแต้มสะสม (Point Events) ---
+function getPointReportMenu() {
+  return {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#9C27B0", contents: [{ type: "text", text: "🎯 รายงานแต้มสะสม", color: "#ffffff", weight: "bold" }] },
+    body: {
+      type: "box", layout: "vertical", spacing: "sm",
+      contents: [
+        { type: "button", style: "primary", color: "#1DB446", action: { type: "message", label: "🌟 การสะสมแต้ม", text: "POINT_REPORT_SELECT:earn" } },
+        { type: "button", style: "primary", color: "#FF7043", action: { type: "message", label: "🎫 การใช้แต้ม", text: "POINT_REPORT_SELECT:redeem" } }
+      ]
+    }
+  };
+}
+
+async function handlePointReportLogic(event, type, pool, client) {
+  try {
+    const res = await pool.query(
+      `SELECT m.branch_id, b.branch_name
+       FROM owner_branch_mapping m
+       JOIN branches b ON m.branch_id = b.id
+       WHERE m.owner_line_id = $1`,
+      [event.source.userId]
+    );
+    const mapping = res.rows || [];
+
+    if (mapping.length === 0) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาที่ผูกกับบัญชีของคุณค่ะ' });
+    }
+    if (mapping.length === 1) {
+      return sendPointReport(event, type, mapping[0].branch_id, mapping[0].branch_name, pool, client);
+    } else {
+      return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: getPointBranchSelectMenu(mapping, type) });
+    }
+  } catch (err) { console.error(err); }
+}
+
+function getPointBranchSelectMenu(mapping, type) {
+  return {
+    type: "bubble",
+    body: {
+      type: "box", layout: "vertical", spacing: "sm",
+      contents: [
+        { type: "text", text: "เลือกสาขาที่ต้องการดู", weight: "bold", size: "lg" },
+        ...mapping.map(m => ({
+          type: "button", style: "secondary", height: "sm",
+          action: { type: "message", label: m.branch_name, text: `VIEW_POINT_REPORT:${type}|${m.branch_id}|${m.branch_name}` }
+        }))
+      ]
+    }
+  };
+}
+
+async function sendPointReport(event, type, branchId, branchName, pool, client) {
+  try {
+    const res = await pool.query(
+      `SELECT
+         machine_id,
+         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') as pt_day,
+         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')   as pt_week,
+         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')  as pt_month,
+         SUM(points)                                                            as pt_all
+       FROM point_events
+       WHERE branch_id = $1 AND type = $2
+       GROUP BY machine_id
+       ORDER BY machine_id`,
+      [branchId, type]
+    );
+    const stats = res.rows || [];
+
+    const label = type === 'earn' ? 'การสะสมแต้ม' : 'การใช้แต้ม';
+    const themeColor = type === 'earn' ? '#1DB446' : '#FF7043';
+    const icon = type === 'earn' ? '🌟' : '🎫';
+
+    if (stats.length === 0) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: `ยังไม่มีข้อมูล${label}สำหรับสาขา ${branchName} ค่ะ` });
+    }
+
+    const p = v => parseInt(v) || 0;
+    const branchSummary = { day: 0, week: 0, month: 0, all: 0 };
+    const machineRows = [];
+
+    stats.forEach((row, index) => {
+      const d = { day: p(row.pt_day), week: p(row.pt_week), month: p(row.pt_month), all: p(row.pt_all) };
+      branchSummary.day += d.day;
+      branchSummary.week += d.week;
+      branchSummary.month += d.month;
+      branchSummary.all += d.all;
+
+      if (index > 0) machineRows.push({ type: "separator", margin: "xl" });
+      machineRows.push({
+        type: "box", layout: "vertical", margin: "md", spacing: "sm",
+        contents: [
+          { type: "text", text: `📟 เครื่อง: ${row.machine_id}`, weight: "bold", size: "md", color: "#111111" },
+          createSummaryRow(`${icon} แต้ม`, d)
+        ]
+      });
+    });
+
+    const flexAllMachines = {
+      type: "bubble",
+      size: "giga",
+      header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📋 ${label} แยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+      body: { type: "box", layout: "vertical", contents: machineRows }
+    };
+
+    const flexSummary = {
+      type: "bubble",
+      size: "giga",
+      header: { type: "box", layout: "vertical", backgroundColor: themeColor, contents: [{ type: "text", text: `🏆 สรุปภาพรวมสาขา: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+      body: {
+        type: "box", layout: "vertical", spacing: "md",
+        contents: [
+          { type: "text", text: `${label} รวมทุกเครื่อง`, weight: "bold", size: "sm" },
+          createSummaryRow(`${icon} แต้มรวม`, branchSummary),
+          { type: "separator" },
+          { type: "text", text: "* ว:24ชม. / ส:7วัน / ด:30วัน / รวม:ทั้งหมด", size: "xxs", color: "#aaaaaa" }
+        ]
+      }
+    };
+
+    return client.replyMessage(event.replyToken, [
+      { type: "flex", altText: `${label} แยกเครื่อง`, contents: flexAllMachines },
+      { type: "flex", altText: `สรุปภาพรวมสาขา`, contents: flexSummary }
     ]);
   } catch (err) { console.error(err); }
 }
@@ -413,6 +542,9 @@ module.exports = {
   sendMultiMachineSelector,
   sendComparisonReport,
   sendDateSelector,
+  getPointReportMenu,
+  handlePointReportLogic,
+  sendPointReport,
   ALPHABET_GROUPS,
   chunkArray
 };
