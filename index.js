@@ -48,7 +48,7 @@ pool.query(`
   CREATE TABLE IF NOT EXISTS balance_requests (
     id SERIAL PRIMARY KEY,
     machine_id TEXT NOT NULL,
-    branch_id INTEGER REFERENCES branches(id),
+    branch_id UUID REFERENCES branches(id),
     amount INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     requested_by TEXT,
@@ -250,7 +250,7 @@ app.get('/api/my-branches', async (req, res) => {
 
 // --- จัดการยอดเงิน: รายชื่อเครื่องของสาขา (สำหรับหน้าเลือกสาขา/เครื่อง) ---
 app.get('/api/machines/:branchId', async (req, res) => {
-  const branchId = parseInt(req.params.branchId, 10);
+  const branchId = req.params.branchId; // branches.id เป็น UUID ไม่ใช่ตัวเลข
   if (!branchId) return res.status(400).json({ message: 'รหัสสาขาไม่ถูกต้อง' });
   try {
     const result = await pool.query(
