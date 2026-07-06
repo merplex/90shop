@@ -35,7 +35,14 @@ const pool = new Pool({
 });
 
 const app = express();
-app.use(express.static('public'));
+// no-store บนไฟล์ .html กัน LINE in-app browser cache หน้าเก่าค้างไว้หลัง deploy
+app.use(express.static('public', {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    }
+  }
+}));
 
 pool.query(`
   CREATE TABLE IF NOT EXISTS balance_requests (
@@ -212,37 +219,49 @@ async function verifyLineUser(accessToken) {
 
 // --- จัดการยอดเงิน: รายชื่อสาขาเฉพาะของ LINE user นี้ (super admin เห็นทุกสาขา) ---
 app.get('/api/my-branches', async (req, res) => {
-  const authHeader = req.headers['authorization'] || '';
-  const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
+  try {
+    const authHeader = req.headers['authorization'] || '';
+    const accessToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
-  const userId = await verifyLineUser(accessToken);
-  if (!userId) {
-    return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
+    const userId = await verifyLineUser(accessToken);
+    if (!userId) {
+      return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
+    }
+
+    const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
+    if (superAdmin.rows.length > 0) {
+      const all = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
+      return res.json(all.rows);
+    }
+
+    const owned = await pool.query(
+      `SELECT b.id, b.branch_name FROM owner_branch_mapping m
+       JOIN branches b ON m.branch_id = b.id
+       WHERE m.owner_line_id = $1
+       ORDER BY b.branch_name`,
+      [userId]
+    );
+    res.json(owned.rows);
+  } catch (e) {
+    console.error('[my-branches Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดสาขา' });
   }
-
-  const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
-  if (superAdmin.rows.length > 0) {
-    const all = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
-    return res.json(all.rows);
-  }
-
-  const owned = await pool.query(
-    `SELECT b.id, b.branch_name FROM owner_branch_mapping m
-     JOIN branches b ON m.branch_id = b.id
-     WHERE m.owner_line_id = $1
-     ORDER BY b.branch_name`,
-    [userId]
-  );
-  res.json(owned.rows);
 });
 
 // --- จัดการยอดเงิน: รายชื่อเครื่องของสาขา (สำหรับหน้าเลือกสาขา/เครื่อง) ---
 app.get('/api/machines/:branchId', async (req, res) => {
-  const result = await pool.query(
-    'SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id',
-    [req.params.branchId]
-  );
-  res.json(result.rows.map(r => r.machine_id));
+  const branchId = parseInt(req.params.branchId, 10);
+  if (!branchId) return res.status(400).json({ message: 'รหัสสาขาไม่ถูกต้อง' });
+  try {
+    const result = await pool.query(
+      'SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id',
+      [branchId]
+    );
+    res.json(result.rows.map(r => r.machine_id));
+  } catch (e) {
+    console.error('[machines Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดรายชื่อเครื่อง' });
+  }
 });
 
 // --- จัดการยอดเงิน: LIFF ส่งคำสั่งเติมยอดให้เครื่อง (สร้างรายการ pending) ---
@@ -254,27 +273,32 @@ app.post('/api/balance/request', express.json(), async (req, res) => {
     return res.status(400).json({ message: 'ข้อมูลไม่ครบหรือจำนวนเงินไม่ถูกต้อง' });
   }
 
-  const userId = await verifyLineUser(accessToken);
-  if (!userId) {
-    return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
-  }
-
-  const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
-  if (superAdmin.rows.length === 0) {
-    const ownerMatch = await pool.query(
-      'SELECT 1 FROM owner_branch_mapping WHERE owner_line_id = $1 AND branch_id = $2',
-      [userId, branchId]
-    );
-    if (ownerMatch.rows.length === 0) {
-      return res.status(403).json({ message: 'คุณไม่มีสิทธิ์จัดการยอดเงินของสาขานี้' });
+  try {
+    const userId = await verifyLineUser(accessToken);
+    if (!userId) {
+      return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
     }
-  }
 
-  await pool.query(
-    'INSERT INTO balance_requests (machine_id, branch_id, amount, requested_by) VALUES ($1, $2, $3, $4)',
-    [machineId, branchId, amt, userId]
-  );
-  return res.json({ message: `ส่งคำสั่งเติม ฿${amt.toLocaleString()} ไปยังเครื่อง ${machineId} สำเร็จ` });
+    const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
+    if (superAdmin.rows.length === 0) {
+      const ownerMatch = await pool.query(
+        'SELECT 1 FROM owner_branch_mapping WHERE owner_line_id = $1 AND branch_id = $2',
+        [userId, branchId]
+      );
+      if (ownerMatch.rows.length === 0) {
+        return res.status(403).json({ message: 'คุณไม่มีสิทธิ์จัดการยอดเงินของสาขานี้' });
+      }
+    }
+
+    await pool.query(
+      'INSERT INTO balance_requests (machine_id, branch_id, amount, requested_by) VALUES ($1, $2, $3, $4)',
+      [machineId, branchId, amt, userId]
+    );
+    return res.json({ message: `ส่งคำสั่งเติม ฿${amt.toLocaleString()} ไปยังเครื่อง ${machineId} สำเร็จ` });
+  } catch (e) {
+    console.error('[balance/request Error]', e.message);
+    return res.status(500).json({ message: 'เกิดข้อผิดพลาดในการส่งคำสั่ง' });
+  }
 });
 
 // --- ESP32/HMI: endpoint เดียวกับโปรเจค 90railway (/machine/check, /machine/confirm) ---
