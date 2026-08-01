@@ -187,16 +187,15 @@
         summaryEl.textContent = '';
         return;
       }
-      const machineLabel = stripBranchPrefix(selectedMachineId);
       if (!amount || amount <= 0) {
         btn.disabled = true;
         btn.textContent = 'กรอกจำนวนเงิน';
-        summaryEl.textContent = `เครื่อง: ${selectedBranch.branch_name} ${machineLabel}`;
+        summaryEl.textContent = `เครื่อง: ${selectedMachineId}`;
         return;
       }
       btn.disabled = false;
-      btn.textContent = `ยืนยันส่ง ฿${amount.toLocaleString()} ไปยังเครื่อง ${machineLabel}`;
-      summaryEl.textContent = `เครื่อง: ${selectedBranch.branch_name} ${machineLabel}`;
+      btn.textContent = `ยืนยันส่ง ฿${amount.toLocaleString()} ไปยังเครื่อง ${selectedMachineId}`;
+      summaryEl.textContent = `เครื่อง: ${selectedMachineId}`;
     }
 
     document.getElementById('confirm-btn').addEventListener('click', async () => {

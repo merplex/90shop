@@ -110,6 +110,21 @@ app.post('/api/point-event', express.json(), async (req, res) => {
   }
 });
 
+// เครื่องที่ไม่เคย poll เข้ามาถาม ทำให้คำขอค้างเป็น pending ตลอดไป - กวาดทิ้งเป็น expired เป็นระยะ
+setInterval(async () => {
+  try {
+    const result = await pool.query(
+      `UPDATE balance_requests SET status = 'expired'
+       WHERE status = 'pending' AND created_at < NOW() - INTERVAL '3 minutes'`
+    );
+    if (result.rowCount > 0) {
+      console.log(`[Balance Expiry Sweep] marked ${result.rowCount} stale pending request(s) as expired`);
+    }
+  } catch (e) {
+    console.error('[Balance Expiry Sweep Error]', e.message);
+  }
+}, 60 * 1000);
+
 app.post('/api/add-owner', express.json(), async (req, res) => {
   const { userId, name } = req.body;
   if (!userId || !name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
@@ -343,10 +358,11 @@ app.post('/api/balance/request', express.json(), async (req, res) => {
       }
     }
 
-    await pool.query(
-      'INSERT INTO balance_requests (machine_id, branch_id, amount, requested_by) VALUES ($1, $2, $3, $4)',
+    const inserted = await pool.query(
+      'INSERT INTO balance_requests (machine_id, branch_id, amount, requested_by) VALUES ($1, $2, $3, $4) RETURNING id',
       [machineId, branchId, amt, userId]
     );
+    console.log(`[Balance] Queued id=${inserted.rows[0].id} machine=${machineId} amount=${amt} by=${userId}`);
     return res.json({ message: `ส่งคำสั่งเติม ฿${amt.toLocaleString()} ไปยังเครื่อง ${machineId} สำเร็จ` });
   } catch (e) {
     console.error('[balance/request Error]', e.message);
@@ -363,14 +379,18 @@ app.get('/machine/check', async (req, res) => {
     const result = await pool.query(
       `SELECT id, amount, status FROM balance_requests
        WHERE machine_id = $1 AND (
-           (status = 'pending' AND created_at >= NOW() - INTERVAL '70 seconds')
+           status = 'pending'
            OR (status = 'success' AND confirmed_at >= NOW() - INTERVAL '30 seconds')
        )
        ORDER BY created_at DESC LIMIT 1`,
       [machine_id]
     );
-    if (result.rows.length === 0) return res.json({ status: 'idle' });
+    if (result.rows.length === 0) {
+      console.log(`[machine/check] machine_id=${machine_id} -> idle`);
+      return res.json({ status: 'idle' });
+    }
     const row = result.rows[0];
+    console.log(`[machine/check] machine_id=${machine_id} -> ${row.status} (log_id=${row.id})`);
     if (row.status === 'success') return res.json({ status: 'success', log_id: row.id, points: row.amount });
     res.json({ status: 'pending', log_id: row.id, points: row.amount });
   } catch (e) {
@@ -388,6 +408,7 @@ app.post('/machine/confirm', express.json(), async (req, res) => {
       [log_id]
     );
     if (result.rows.length === 0) return res.status(400).json({ success: false });
+    console.log(`[machine/confirm] log_id=${log_id} confirmed`);
     res.json({ success: true });
   } catch (e) {
     console.error('[machine/confirm Error]', e.message);
