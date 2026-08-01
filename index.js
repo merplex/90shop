@@ -250,18 +250,54 @@ app.put('/api/branch/:id', express.json(), async (req, res) => {
   }
 });
 
+// ลบสาขา: ถ้ายังผูกกับเจ้าของอยู่ให้บล็อกไว้ (เป็นการตั้งค่าที่ตั้งใจไว้ ไม่ใช่ข้อมูลค้าง)
+// ถ้าไม่ผูกแล้ว ให้ล้างข้อมูลเครื่องทั้งหมดที่เคยอยู่ใต้สาขานี้ (ยึดตาม machine_id ไม่ใช่ branch_id)
+// กันไม่ให้ข้อมูลเก่าค้างมาปนกับ machine_id เดิมถ้ามีการใช้ซ้ำในอนาคต และกันตารางบวมจากข้อมูลที่ไม่ใช้แล้ว
+async function deleteBranchCascade(branchId) {
+  const linked = await pool.query('SELECT o.owner_name FROM owner_branch_mapping m JOIN branch_owners o ON m.owner_line_id = o.owner_line_id WHERE m.branch_id = $1', [branchId]);
+  if (linked.rows.length > 0) {
+    return { blocked: true, names: linked.rows.map(r => r.owner_name) };
+  }
+
+  const client2 = await pool.connect();
+  try {
+    await client2.query('BEGIN');
+    const machineRes = await client2.query(
+      `SELECT DISTINCT machine_id FROM (
+         SELECT machine_id FROM hourly_summary WHERE branch_id = $1
+         UNION SELECT machine_id FROM point_events WHERE branch_id = $1
+         UNION SELECT machine_id FROM balance_requests WHERE branch_id = $1
+         UNION SELECT machine_id FROM transactions WHERE branch_id = $1
+       ) x`,
+      [branchId]
+    );
+    const machineIds = machineRes.rows.map(r => r.machine_id);
+    if (machineIds.length > 0) {
+      await client2.query('DELETE FROM hourly_summary WHERE machine_id = ANY($1)', [machineIds]);
+      await client2.query('DELETE FROM point_events WHERE machine_id = ANY($1)', [machineIds]);
+      await client2.query('DELETE FROM balance_requests WHERE machine_id = ANY($1)', [machineIds]);
+      await client2.query('DELETE FROM transactions WHERE machine_id = ANY($1)', [machineIds]);
+    }
+    await client2.query('DELETE FROM branches WHERE id = $1', [branchId]);
+    await client2.query('COMMIT');
+    return { blocked: false, machineIds };
+  } catch (e) {
+    await client2.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    client2.release();
+  }
+}
+
 app.delete('/api/branch/:id', async (req, res) => {
   try {
-    const linked = await pool.query('SELECT o.owner_name FROM owner_branch_mapping m JOIN branch_owners o ON m.owner_line_id = o.owner_line_id WHERE m.branch_id = $1', [req.params.id]);
-    if (linked.rows.length > 0) {
-      const names = linked.rows.map(r => r.owner_name).join(', ');
-      return res.status(409).json({ message: `ไม่สามารถลบได้ สาขานี้ยังผูกกับเจ้าของอยู่: ${names} กรุณายกเลิกการผูกก่อน` });
+    const result = await deleteBranchCascade(req.params.id);
+    if (result.blocked) {
+      return res.status(409).json({ message: `ไม่สามารถลบได้ สาขานี้ยังผูกกับเจ้าของอยู่: ${result.names.join(', ')} กรุณายกเลิกการผูกก่อน` });
     }
-    await pool.query('DELETE FROM branches WHERE id = $1', [req.params.id]);
-    res.json({ message: 'ลบสำเร็จ' });
+    res.json({ message: result.machineIds.length > 0 ? `ลบสำเร็จ (ล้างข้อมูลเครื่อง ${result.machineIds.length} เครื่องที่เกี่ยวข้องด้วย)` : 'ลบสำเร็จ' });
   } catch (e) {
     console.error('[delete branch Error]', e.message);
-    if (e.code === '23503') return res.status(409).json({ message: 'ไม่สามารถลบได้ สาขานี้ยังมีข้อมูลผูกอยู่ (เช่น รายการซื้อขาย/เจ้าของ)' });
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการลบ' });
   }
 });
@@ -691,13 +727,14 @@ async function handleEventInner(event) {
   }
   if (userText.startsWith('DELETE_BRANCH:')) {
     const branchId = userText.split(':')[1];
-    const linked = await pool.query('SELECT o.owner_name FROM owner_branch_mapping m JOIN branch_owners o ON m.owner_line_id = o.owner_line_id WHERE m.branch_id = $1', [branchId]);
-    if (linked.rows.length > 0) {
-      const names = linked.rows.map(r => r.owner_name).join(', ');
-      return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ ลบไม่ได้ สาขานี้ยังผูกกับเจ้าของอยู่: ${names}\nกรุณายกเลิกการผูกก่อนแล้วค่อยลบ` });
+    const result = await deleteBranchCascade(branchId);
+    if (result.blocked) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ ลบไม่ได้ สาขานี้ยังผูกกับเจ้าของอยู่: ${result.names.join(', ')}\nกรุณายกเลิกการผูกก่อนแล้วค่อยลบ` });
     }
-    await pool.query('DELETE FROM branches WHERE id = $1', [branchId]);
-    return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบสาขาเรียบร้อย' });
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: result.machineIds.length > 0 ? `✅ ลบสาขาเรียบร้อย (ล้างข้อมูลเครื่อง ${result.machineIds.length} เครื่องที่เกี่ยวข้องด้วย)` : '✅ ลบสาขาเรียบร้อย'
+    });
   }
   if (userText.startsWith('RENAME_OWNER:')) {
     const [id, newName] = userText.replace('RENAME_OWNER:', '').split('|');
