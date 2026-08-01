@@ -130,8 +130,17 @@
     async function deleteItem(id, name) {
       if (!confirm(`ลบ "${name}" ?`)) return;
       const url = mode === 'owner' ? `/api/owner/${id}` : `/api/branch/${id}`;
-      await fetch(url, { method: 'DELETE' });
-      loadList();
+      try {
+        const res = await fetch(url, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.message || 'ไม่สามารถลบได้');
+          return;
+        }
+        loadList();
+      } catch (e) {
+        alert('เกิดข้อผิดพลาด กรุณาลองใหม่');
+      }
     }
 
     document.getElementById('submit-btn').addEventListener('click', async () => {

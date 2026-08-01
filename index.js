@@ -128,80 +128,142 @@ setInterval(async () => {
 }, 60 * 1000);
 
 app.post('/api/add-owner', express.json(), async (req, res) => {
-  const { userId, name } = req.body;
-  if (!userId || !name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
-  const dupName = await pool.query('SELECT 1 FROM branch_owners WHERE owner_name = $1 AND owner_line_id != $2', [name, userId]);
-  if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อ "${name}" มีอยู่แล้ว` });
-  await pool.query(
-    'INSERT INTO branch_owners (owner_line_id, owner_name) VALUES ($1, $2) ON CONFLICT (owner_line_id) DO UPDATE SET owner_name = EXCLUDED.owner_name',
-    [userId, name]
-  );
-  return res.json({ message: `บันทึกเจ้าของ: ${name} สำเร็จ` });
+  try {
+    const { userId, name } = req.body;
+    if (!userId || !name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+    const dupName = await pool.query('SELECT 1 FROM branch_owners WHERE owner_name = $1 AND owner_line_id != $2', [name, userId]);
+    if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อ "${name}" มีอยู่แล้ว` });
+    await pool.query(
+      'INSERT INTO branch_owners (owner_line_id, owner_name) VALUES ($1, $2) ON CONFLICT (owner_line_id) DO UPDATE SET owner_name = EXCLUDED.owner_name',
+      [userId, name]
+    );
+    return res.json({ message: `บันทึกเจ้าของ: ${name} สำเร็จ` });
+  } catch (e) {
+    console.error('[add-owner Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการบันทึก' });
+  }
 });
 
 app.post('/api/add-branch', express.json(), async (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
-  const dupName = await pool.query('SELECT 1 FROM branches WHERE branch_name = $1', [name]);
-  if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อสาขา "${name}" มีอยู่แล้ว` });
-  await pool.query('INSERT INTO branches (branch_name) VALUES ($1)', [name]);
-  return res.json({ message: `บันทึกสาขา: ${name} สำเร็จ` });
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+    const dupName = await pool.query('SELECT 1 FROM branches WHERE branch_name = $1', [name]);
+    if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อสาขา "${name}" มีอยู่แล้ว` });
+    await pool.query('INSERT INTO branches (branch_name) VALUES ($1)', [name]);
+    return res.json({ message: `บันทึกสาขา: ${name} สำเร็จ` });
+  } catch (e) {
+    console.error('[add-branch Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการบันทึก' });
+  }
 });
 
 app.get('/api/owners', async (req, res) => {
-  const result = await pool.query('SELECT owner_line_id, owner_name FROM branch_owners ORDER BY owner_name');
-  res.json(result.rows);
+  try {
+    const result = await pool.query('SELECT owner_line_id, owner_name FROM branch_owners ORDER BY owner_name');
+    res.json(result.rows);
+  } catch (e) {
+    console.error('[owners Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดข้อมูล' });
+  }
 });
 
 // debug endpoint — ดู branches + mapping ว่า orphan ไหม
 app.get('/api/debug/mapping', async (req, res) => {
-  const [branches, mapping] = await Promise.all([
-    pool.query('SELECT id, branch_name FROM branches ORDER BY id'),
-    pool.query(`SELECT m.owner_line_id, o.owner_name, m.branch_id, b.branch_name as mapped_branch
-                FROM owner_branch_mapping m
-                LEFT JOIN branch_owners o ON m.owner_line_id = o.owner_line_id
-                LEFT JOIN branches b ON m.branch_id = b.id
-                ORDER BY m.owner_line_id`)
-  ]);
-  res.json({ branches: branches.rows, mapping: mapping.rows });
+  try {
+    const [branches, mapping] = await Promise.all([
+      pool.query('SELECT id, branch_name FROM branches ORDER BY id'),
+      pool.query(`SELECT m.owner_line_id, o.owner_name, m.branch_id, b.branch_name as mapped_branch
+                  FROM owner_branch_mapping m
+                  LEFT JOIN branch_owners o ON m.owner_line_id = o.owner_line_id
+                  LEFT JOIN branches b ON m.branch_id = b.id
+                  ORDER BY m.owner_line_id`)
+    ]);
+    res.json({ branches: branches.rows, mapping: mapping.rows });
+  } catch (e) {
+    console.error('[debug/mapping Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดข้อมูล' });
+  }
 });
 
 app.get('/api/branches', async (req, res) => {
-  const result = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
-  res.json(result.rows);
+  try {
+    const result = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
+    res.json(result.rows);
+  } catch (e) {
+    console.error('[branches Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดข้อมูล' });
+  }
 });
 
 app.get('/api/owner-branches/:ownerId', async (req, res) => {
-  const result = await pool.query('SELECT branch_id FROM owner_branch_mapping WHERE owner_line_id = $1', [req.params.ownerId]);
-  res.json(result.rows.map(r => r.branch_id));
+  try {
+    const result = await pool.query('SELECT branch_id FROM owner_branch_mapping WHERE owner_line_id = $1', [req.params.ownerId]);
+    res.json(result.rows.map(r => r.branch_id));
+  } catch (e) {
+    console.error('[owner-branches Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดข้อมูล' });
+  }
 });
 
 app.put('/api/owner/:id', express.json(), async (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
-  const dupName = await pool.query('SELECT 1 FROM branch_owners WHERE owner_name = $1 AND owner_line_id != $2', [name, req.params.id]);
-  if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อ "${name}" มีอยู่แล้ว` });
-  await pool.query('UPDATE branch_owners SET owner_name = $1 WHERE owner_line_id = $2', [name, req.params.id]);
-  res.json({ message: 'แก้ไขสำเร็จ' });
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+    const dupName = await pool.query('SELECT 1 FROM branch_owners WHERE owner_name = $1 AND owner_line_id != $2', [name, req.params.id]);
+    if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อ "${name}" มีอยู่แล้ว` });
+    await pool.query('UPDATE branch_owners SET owner_name = $1 WHERE owner_line_id = $2', [name, req.params.id]);
+    res.json({ message: 'แก้ไขสำเร็จ' });
+  } catch (e) {
+    console.error('[update owner Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการแก้ไข' });
+  }
 });
 
 app.delete('/api/owner/:id', async (req, res) => {
-  await pool.query('DELETE FROM branch_owners WHERE owner_line_id = $1', [req.params.id]);
-  res.json({ message: 'ลบสำเร็จ' });
+  try {
+    const linked = await pool.query('SELECT b.branch_name FROM owner_branch_mapping m JOIN branches b ON m.branch_id = b.id WHERE m.owner_line_id = $1', [req.params.id]);
+    if (linked.rows.length > 0) {
+      const names = linked.rows.map(r => r.branch_name).join(', ');
+      return res.status(409).json({ message: `ไม่สามารถลบได้ เจ้าของรายนี้ยังผูกกับสาขาอยู่: ${names} กรุณายกเลิกการผูกก่อน` });
+    }
+    await pool.query('DELETE FROM branch_owners WHERE owner_line_id = $1', [req.params.id]);
+    res.json({ message: 'ลบสำเร็จ' });
+  } catch (e) {
+    console.error('[delete owner Error]', e.message);
+    if (e.code === '23503') return res.status(409).json({ message: 'ไม่สามารถลบได้ เจ้าของรายนี้ยังมีข้อมูลผูกอยู่' });
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการลบ' });
+  }
 });
 
 app.put('/api/branch/:id', express.json(), async (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
-  const dupName = await pool.query('SELECT 1 FROM branches WHERE branch_name = $1 AND id != $2', [name, req.params.id]);
-  if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อสาขา "${name}" มีอยู่แล้ว` });
-  await pool.query('UPDATE branches SET branch_name = $1 WHERE id = $2', [name, req.params.id]);
-  res.json({ message: 'แก้ไขสำเร็จ' });
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+    const dupName = await pool.query('SELECT 1 FROM branches WHERE branch_name = $1 AND id != $2', [name, req.params.id]);
+    if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อสาขา "${name}" มีอยู่แล้ว` });
+    await pool.query('UPDATE branches SET branch_name = $1 WHERE id = $2', [name, req.params.id]);
+    res.json({ message: 'แก้ไขสำเร็จ' });
+  } catch (e) {
+    console.error('[update branch Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการแก้ไข' });
+  }
 });
 
 app.delete('/api/branch/:id', async (req, res) => {
-  await pool.query('DELETE FROM branches WHERE id = $1', [req.params.id]);
-  res.json({ message: 'ลบสำเร็จ' });
+  try {
+    const linked = await pool.query('SELECT o.owner_name FROM owner_branch_mapping m JOIN branch_owners o ON m.owner_line_id = o.owner_line_id WHERE m.branch_id = $1', [req.params.id]);
+    if (linked.rows.length > 0) {
+      const names = linked.rows.map(r => r.owner_name).join(', ');
+      return res.status(409).json({ message: `ไม่สามารถลบได้ สาขานี้ยังผูกกับเจ้าของอยู่: ${names} กรุณายกเลิกการผูกก่อน` });
+    }
+    await pool.query('DELETE FROM branches WHERE id = $1', [req.params.id]);
+    res.json({ message: 'ลบสำเร็จ' });
+  } catch (e) {
+    console.error('[delete branch Error]', e.message);
+    if (e.code === '23503') return res.status(409).json({ message: 'ไม่สามารถลบได้ สาขานี้ยังมีข้อมูลผูกอยู่ (เช่น รายการซื้อขาย/เจ้าของ)' });
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการลบ' });
+  }
 });
 
 // --- ESP32: รับยอดสรุปรายชั่วโมงจากเครื่อง ---
@@ -419,24 +481,49 @@ app.post('/machine/confirm', express.json(), async (req, res) => {
 });
 
 app.post('/api/match', express.json(), async (req, res) => {
-  const { ownerId, addBranchIds, removeBranchIds } = req.body;
-  if (!ownerId) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
-  if (removeBranchIds && removeBranchIds.length > 0) {
-    await pool.query('DELETE FROM owner_branch_mapping WHERE owner_line_id = $1 AND branch_id = ANY($2)', [ownerId, removeBranchIds]);
-  }
-  if (addBranchIds && addBranchIds.length > 0) {
-    for (const bId of addBranchIds) {
-      await pool.query('INSERT INTO owner_branch_mapping (owner_line_id, branch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [ownerId, bId]);
+  try {
+    const { ownerId, addBranchIds, removeBranchIds } = req.body;
+    if (!ownerId) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
+    if (removeBranchIds && removeBranchIds.length > 0) {
+      await pool.query('DELETE FROM owner_branch_mapping WHERE owner_line_id = $1 AND branch_id = ANY($2)', [ownerId, removeBranchIds]);
     }
+    if (addBranchIds && addBranchIds.length > 0) {
+      for (const bId of addBranchIds) {
+        await pool.query('INSERT INTO owner_branch_mapping (owner_line_id, branch_id) VALUES ($1, $2) ON CONFLICT DO NOTHING', [ownerId, bId]);
+      }
+    }
+    res.json({ message: 'บันทึกสำเร็จ' });
+  } catch (e) {
+    console.error('[match Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการบันทึก' });
   }
-  res.json({ message: 'บันทึกสำเร็จ' });
 });
 
 app.post('/webhook', line.middleware(config), (req, res) => {
-  Promise.all(req.body.events.map(handleEvent)).then((result) => res.json(result));
+  Promise.all(req.body.events.map(handleEvent))
+    .then((result) => res.json(result))
+    .catch((err) => {
+      console.error('[Webhook Error]', err);
+      res.json([]);
+    });
 });
 
+// กันตาย: error ใน handler ไหนก็ตาม (เช่น FK constraint ตอนลบ) ต้องไม่ทำให้ process ทั้งตัวพังและรีสตาร์ทลูป
 async function handleEvent(event) {
+  try {
+    return await handleEventInner(event);
+  } catch (err) {
+    console.error('[handleEvent Error]', err);
+    if (event.replyToken) {
+      try {
+        return await client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง' });
+      } catch (_) { /* reply token อาจหมดอายุแล้ว ปล่อยผ่าน */ }
+    }
+    return null;
+  }
+}
+
+async function handleEventInner(event) {
   if (event.type === 'postback') {
     const data = event.postback.data;
     if (data.startsWith('MACHINE_DATE_SELECT|')) {
@@ -593,11 +680,23 @@ async function handleEvent(event) {
   if (userText.startsWith('MATCH_STEP1:')) return showGrid(event, 'match_owner', userText.split(':')[1]);
 
   if (userText.startsWith('DELETE_OWNER:')) {
-    await pool.query('DELETE FROM branch_owners WHERE owner_line_id = $1', [userText.split(':')[1]]);
+    const ownerId = userText.split(':')[1];
+    const linked = await pool.query('SELECT b.branch_name FROM owner_branch_mapping m JOIN branches b ON m.branch_id = b.id WHERE m.owner_line_id = $1', [ownerId]);
+    if (linked.rows.length > 0) {
+      const names = linked.rows.map(r => r.branch_name).join(', ');
+      return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ ลบไม่ได้ เจ้าของรายนี้ยังผูกกับสาขาอยู่: ${names}\nกรุณายกเลิกการผูกก่อนแล้วค่อยลบ` });
+    }
+    await pool.query('DELETE FROM branch_owners WHERE owner_line_id = $1', [ownerId]);
     return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบเจ้าของเรียบร้อย' });
   }
   if (userText.startsWith('DELETE_BRANCH:')) {
-    await pool.query('DELETE FROM branches WHERE id = $1', [userText.split(':')[1]]);
+    const branchId = userText.split(':')[1];
+    const linked = await pool.query('SELECT o.owner_name FROM owner_branch_mapping m JOIN branch_owners o ON m.owner_line_id = o.owner_line_id WHERE m.branch_id = $1', [branchId]);
+    if (linked.rows.length > 0) {
+      const names = linked.rows.map(r => r.owner_name).join(', ');
+      return client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ ลบไม่ได้ สาขานี้ยังผูกกับเจ้าของอยู่: ${names}\nกรุณายกเลิกการผูกก่อนแล้วค่อยลบ` });
+    }
+    await pool.query('DELETE FROM branches WHERE id = $1', [branchId]);
     return client.replyMessage(event.replyToken, { type: 'text', text: '✅ ลบสาขาเรียบร้อย' });
   }
   if (userText.startsWith('RENAME_OWNER:')) {
