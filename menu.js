@@ -397,16 +397,24 @@ async function sendMultiMachineSelector(event, branchId, branchName, selectedIds
   const currentListStr = selectedIds.join(',');
   const machineRows = uniqueMachines.map(mId => {
     const isSelected = selectedIds.includes(mId);
+    const shortLabel = mId.substring(mId.lastIndexOf('_') + 1);
     return {
-      type: "box", layout: "horizontal", margin: "sm", spacing: "sm",
+      type: "box", layout: "vertical", margin: "md", spacing: "xs",
       contents: [
-        { type: "text", text: `เครื่อง ${mId}`, size: "sm", gravity: "center", flex: 4, color: isSelected ? "#000000" : "#555555", weight: isSelected ? "bold" : "regular" },
-        { type: "button", style: "secondary", height: "sm", flex: 2, action: { type: "message", label: isSelected ? "✅" : "⬜", text: `TOGGLE_MACHINE:${branchId}|${branchName}|${mId}|${currentListStr}` } }
+        { type: "text", text: `เครื่อง ${shortLabel}`, size: "sm", color: isSelected ? "#000000" : "#555555", weight: isSelected ? "bold" : "regular" },
+        {
+          type: "box", layout: "horizontal", spacing: "sm",
+          contents: [
+            { type: "button", style: "secondary", height: "sm", flex: 3, action: { type: "postback", label: isSelected ? "✅ เลือกแล้ว" : "⬜ เลือก", data: `TOGGLE_MACHINE:${branchId}|${branchName}|${mId}|${currentListStr}` } },
+            { type: "button", style: "secondary", height: "sm", flex: 1, color: "#FF3B30", action: { type: "postback", label: "🗑", data: `CONFIRM_DELETE_MACHINE:${branchId}|${branchName}|${mId}` } }
+          ]
+        },
+        { type: "separator", margin: "sm" }
       ]
     };
   });
 
-  const chunks = chunkArray(machineRows, 10);
+  const chunks = chunkArray(machineRows, 6);
   const bubbles = chunks.map(chunk => ({
     type: "bubble",
     header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [{ type: "text", text: `🔢 เลือกเครื่องเทียบ (${branchName})`, color: "#ffffff", weight: "bold" }, { type: "text", text: `เลือกแล้ว: ${selectedIds.length} เครื่อง`, color: "#ffffff", size: "xs" }] },
@@ -414,6 +422,43 @@ async function sendMultiMachineSelector(event, branchId, branchName, selectedIds
     footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#000000", margin: "sm", action: { type: "message", label: selectedIds.length > 0 ? `🚀 เทียบยอด (${selectedIds.length})` : "กรุณาเลือกเครื่อง", text: selectedIds.length > 0 ? `CONFIRM_COMPARE:${currentListStr}` : "ยังไม่ได้เลือกเครื่อง" } }] }
   }));
   return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกเครื่อง", contents: { type: "carousel", contents: bubbles } });
+}
+
+// --- ลบเครื่อง / ลบข้อมูลเหรียญ-แบงค์-QR ทั้งหมดของเครื่อง ---
+// หมายเหตุ: ระบบไม่มีตาราง "เครื่อง" แยกต่างหาก รายชื่อเครื่องถูกดึงมาจาก machine_id ที่มีอยู่ใน hourly_summary
+// ดังนั้น "ลบเครื่อง" กับ "ลบข้อมูลทั้งหมดของเครื่อง" คือการลบแถวเดียวกัน ถ้ามีข้อมูลชื่อเครื่องเดิมส่งเข้ามาใหม่ เครื่องจะกลับมาแสดงเองอัตโนมัติ
+async function sendDeleteMachineConfirm(event, branchId, branchName, machineId, client) {
+  const bubble = {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#FF3B30", contents: [{ type: "text", text: "⚠️ ยืนยันการลบเครื่อง", color: "#ffffff", weight: "bold" }] },
+    body: {
+      type: "box", layout: "vertical", spacing: "md",
+      contents: [
+        { type: "text", text: `เครื่อง ${machineId} (${branchName})`, weight: "bold", wrap: true },
+        { type: "text", text: "ข้อมูลเหรียญ/แบงค์/QR ทั้งหมดของเครื่องนี้ (ทุกวันที่) จะถูกลบถาวร กู้คืนไม่ได้", size: "sm", color: "#FF3B30", wrap: true }
+      ]
+    },
+    footer: {
+      type: "box", layout: "vertical", spacing: "sm",
+      contents: [
+        { type: "button", style: "primary", color: "#FF3B30", action: { type: "postback", label: "✅ ยืนยันลบ", data: `DO_DELETE_MACHINE:${branchId}|${branchName}|${machineId}` } },
+        { type: "button", style: "secondary", action: { type: "message", label: "❌ ยกเลิก", text: `SELECT_MACHINE_BRANCH:${branchId}|${branchName}` } }
+      ]
+    }
+  };
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "ยืนยันการลบเครื่อง", contents: bubble });
+}
+
+async function deleteMachineData(event, branchId, branchName, machineId, pool, client) {
+  try {
+    await pool.query('DELETE FROM hourly_summary WHERE branch_id = $1 AND machine_id = $2', [branchId, machineId]);
+    return client.replyMessage(event.replyToken, [
+      { type: 'text', text: `✅ ลบเครื่อง ${machineId} และข้อมูลเหรียญ/แบงค์/QR ทั้งหมดเรียบร้อยค่ะ` }
+    ]);
+  } catch (err) {
+    console.error("Delete Machine Error:", err);
+    return client.replyMessage(event.replyToken, { type: 'text', text: 'เกิดข้อผิดพลาดในการลบข้อมูลค่ะบอส!' });
+  }
 }
 
 async function sendComparisonReport(event, idsStr, dateStr, pool, client) {
@@ -540,6 +585,8 @@ module.exports = {
   handleBranchReportLogic,
   handleMachineReportLogic,
   sendMultiMachineSelector,
+  sendDeleteMachineConfirm,
+  deleteMachineData,
   sendComparisonReport,
   sendDateSelector,
   getPointReportMenu,

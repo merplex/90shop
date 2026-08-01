@@ -8,6 +8,8 @@ const {
   handleMachineReportLogic,
   sendMachineSelector,
   sendMultiMachineSelector,
+  sendDeleteMachineConfirm,
+  deleteMachineData,
   sendDateSelector,
   sendMachineDetailReport,
   sendComparisonReport,
@@ -419,6 +421,30 @@ async function handleEvent(event) {
       const selectedDate = event.postback.params.date;
       return sendComparisonReport(event, idsStr, selectedDate, pool, client); // ส่ง pool แทน supabase
     }
+
+    if (data.startsWith('TOGGLE_MACHINE:')) {
+      const raw = data.split(':')[1];
+      const [branchId, branchName, targetId, currentListStr] = raw.split('|');
+      let currentList = currentListStr ? currentListStr.split(',') : [];
+
+      if (currentList.includes(targetId)) {
+        currentList = currentList.filter(id => id !== targetId);
+      } else {
+        currentList.push(targetId);
+      }
+      return sendMultiMachineSelector(event, branchId, branchName, currentList, pool, client);
+    }
+
+    if (data.startsWith('CONFIRM_DELETE_MACHINE:')) {
+      const [branchId, branchName, machineId] = data.split(':')[1].split('|');
+      return sendDeleteMachineConfirm(event, branchId, branchName, machineId, client);
+    }
+
+    if (data.startsWith('DO_DELETE_MACHINE:')) {
+      const [branchId, branchName, machineId] = data.split(':')[1].split('|');
+      return deleteMachineData(event, branchId, branchName, machineId, pool, client);
+    }
+
     return null;
   }
 
@@ -496,19 +522,6 @@ async function handleEvent(event) {
   if (userText.startsWith('SELECT_MACHINE_BRANCH:')) {
     const parts = userText.split(':')[1].split('|');
     return sendMultiMachineSelector(event, parts[0], parts[1], [], pool, client);
-  }
-
-  if (userText.startsWith('TOGGLE_MACHINE:')) {
-    const raw = userText.split(':')[1];
-    const [branchId, branchName, targetId, currentListStr] = raw.split('|');
-    let currentList = currentListStr ? currentListStr.split(',') : [];
-    
-    if (currentList.includes(targetId)) {
-        currentList = currentList.filter(id => id !== targetId);
-    } else {
-        currentList.push(targetId);
-    }
-    return sendMultiMachineSelector(event, branchId, branchName, currentList, pool, client);
   }
 
   if (userText.startsWith('CONFIRM_COMPARE:')) {
