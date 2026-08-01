@@ -10,6 +10,8 @@ const {
   sendMultiMachineSelector,
   sendDeleteMachineConfirm,
   deleteMachineData,
+  sendClearMachineConfirm,
+  clearMachineData,
   sendDateSelector,
   sendMachineDetailReport,
   sendComparisonReport,
@@ -464,6 +466,16 @@ async function handleEvent(event) {
     if (data.startsWith('DO_DELETE_MACHINE:')) {
       const [branchId, branchName, machineId] = data.split(':')[1].split('|');
       return deleteMachineData(event, branchId, branchName, machineId, pool, client);
+    }
+
+    if (data.startsWith('CONFIRM_CLEAR_MACHINE:')) {
+      const [branchId, branchName, machineId] = data.split(':')[1].split('|');
+      return sendClearMachineConfirm(event, branchId, branchName, machineId, client);
+    }
+
+    if (data.startsWith('DO_CLEAR_MACHINE:')) {
+      const [branchId, branchName, machineId] = data.split(':')[1].split('|');
+      return clearMachineData(event, branchId, branchName, machineId, pool, client);
     }
 
     return null;

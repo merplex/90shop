@@ -402,11 +402,12 @@ async function sendMultiMachineSelector(event, branchId, branchName, selectedIds
       type: "box", layout: "vertical", margin: "md", spacing: "xs",
       contents: [
         { type: "text", text: `เครื่อง ${shortLabel}`, size: "sm", color: isSelected ? "#000000" : "#555555", weight: isSelected ? "bold" : "regular" },
+        { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: isSelected ? "✅ เลือกแล้ว" : "⬜ เลือกเปรียบเทียบ", data: `TOGGLE_MACHINE:${branchId}|${branchName}|${mId}|${currentListStr}` } },
         {
           type: "box", layout: "horizontal", spacing: "sm",
           contents: [
-            { type: "button", style: "secondary", height: "sm", flex: 3, action: { type: "postback", label: isSelected ? "✅ เลือกแล้ว" : "⬜ เลือก", data: `TOGGLE_MACHINE:${branchId}|${branchName}|${mId}|${currentListStr}` } },
-            { type: "button", style: "secondary", height: "sm", flex: 1, color: "#FF3B30", action: { type: "postback", label: "🗑", data: `CONFIRM_DELETE_MACHINE:${branchId}|${branchName}|${mId}` } }
+            { type: "button", style: "secondary", height: "sm", flex: 1, color: "#FF9500", action: { type: "postback", label: "🧹 ล้างยอด", data: `CONFIRM_CLEAR_MACHINE:${branchId}|${branchName}|${mId}` } },
+            { type: "button", style: "secondary", height: "sm", flex: 1, color: "#FF3B30", action: { type: "postback", label: "🗑 ลบเครื่อง", data: `CONFIRM_DELETE_MACHINE:${branchId}|${branchName}|${mId}` } }
           ]
         },
         { type: "separator", margin: "sm" }
@@ -414,7 +415,7 @@ async function sendMultiMachineSelector(event, branchId, branchName, selectedIds
     };
   });
 
-  const chunks = chunkArray(machineRows, 6);
+  const chunks = chunkArray(machineRows, 5);
   const bubbles = chunks.map(chunk => ({
     type: "bubble",
     header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [{ type: "text", text: `🔢 เลือกเครื่องเทียบ (${branchName})`, color: "#ffffff", weight: "bold" }, { type: "text", text: `เลือกแล้ว: ${selectedIds.length} เครื่อง`, color: "#ffffff", size: "xs" }] },
@@ -458,6 +459,41 @@ async function deleteMachineData(event, branchId, branchName, machineId, pool, c
   } catch (err) {
     console.error("Delete Machine Error:", err);
     return client.replyMessage(event.replyToken, { type: 'text', text: 'เกิดข้อผิดพลาดในการลบข้อมูลค่ะบอส!' });
+  }
+}
+
+// --- ล้างยอด: รีเซ็ตค่าเหรียญ/แบงค์/QR เป็น 0 แต่ยังคงแถวข้อมูลไว้ เครื่องจึงยังแสดงอยู่ในระบบ (ต่างจากลบเครื่องที่ลบแถวทิ้งทั้งหมด) ---
+async function sendClearMachineConfirm(event, branchId, branchName, machineId, client) {
+  const bubble = {
+    type: "bubble",
+    header: { type: "box", layout: "vertical", backgroundColor: "#FF9500", contents: [{ type: "text", text: "⚠️ ยืนยันการล้างยอด", color: "#ffffff", weight: "bold" }] },
+    body: {
+      type: "box", layout: "vertical", spacing: "md",
+      contents: [
+        { type: "text", text: `เครื่อง ${machineId} (${branchName})`, weight: "bold", wrap: true },
+        { type: "text", text: "ยอดเหรียญ/แบงค์/QR ทั้งหมดของเครื่องนี้ (ทุกวันที่) จะถูกรีเซ็ตเป็น 0 กู้คืนไม่ได้ แต่เครื่องนี้จะยังคงแสดงอยู่ในระบบเหมือนเดิม", size: "sm", color: "#FF9500", wrap: true }
+      ]
+    },
+    footer: {
+      type: "box", layout: "vertical", spacing: "sm",
+      contents: [
+        { type: "button", style: "primary", color: "#FF9500", action: { type: "postback", label: "✅ ยืนยันล้างยอด", data: `DO_CLEAR_MACHINE:${branchId}|${branchName}|${machineId}` } },
+        { type: "button", style: "secondary", action: { type: "message", label: "❌ ยกเลิก", text: `SELECT_MACHINE_BRANCH:${branchId}|${branchName}` } }
+      ]
+    }
+  };
+  return client.replyMessage(event.replyToken, { type: "flex", altText: "ยืนยันการล้างยอด", contents: bubble });
+}
+
+async function clearMachineData(event, branchId, branchName, machineId, pool, client) {
+  try {
+    await pool.query('UPDATE hourly_summary SET coin = 0, bank = 0, qr = 0 WHERE branch_id = $1 AND machine_id = $2', [branchId, machineId]);
+    return client.replyMessage(event.replyToken, [
+      { type: 'text', text: `✅ ล้างยอดเหรียญ/แบงค์/QR ของเครื่อง ${machineId} เรียบร้อยค่ะ` }
+    ]);
+  } catch (err) {
+    console.error("Clear Machine Error:", err);
+    return client.replyMessage(event.replyToken, { type: 'text', text: 'เกิดข้อผิดพลาดในการล้างยอดค่ะบอส!' });
   }
 }
 
@@ -587,6 +623,8 @@ module.exports = {
   sendMultiMachineSelector,
   sendDeleteMachineConfirm,
   deleteMachineData,
+  sendClearMachineConfirm,
+  clearMachineData,
   sendComparisonReport,
   sendDateSelector,
   getPointReportMenu,
