@@ -302,26 +302,6 @@ app.delete('/api/branch/:id', async (req, res) => {
   }
 });
 
-// --- ESP32: sanitize ค่าตัวนับที่รับมาจากเครื่อง ---
-// เฟิร์มแวร์ ESP32 บางรุ่น (พบครั้งแรก RABBIT01_M02 / 90wash01_Wash01 ช่วง ก.ย. 2026)
-// อ่านตัวนับ coin ผิดขนาด type ทำให้ค่าจริง n ถูกส่งมาเป็น (n<<16)|n หรือ n<<16
-// (เช่น 7 -> 458759 = 0x00070007, 20 -> 1310720 = 0x00140000)
-// ดักแพตเทิร์นนี้แล้วแก้กลับเป็นค่าจริง + log เตือน กันข้อมูลขยะเข้า DB
-// เงื่อนไข ((v & 0xFFFF) === (v >>> 16)) หรือ low word = 0 จะจริงก็ต่อเมื่อ v >= 65536
-// ในหนึ่ง period ซึ่งเป็นไปไม่ได้กับตู้ซักผ้า จึงปลอดภัยไม่ false-positive
-function sanitizeCounter(raw, field, machineId) {
-  const v = parseInt(raw) || 0;
-  if (v <= 0xFFFF) return v < 0 ? 0 : v;
-  const hi = v >>> 16;
-  const lo = v & 0xFFFF;
-  if (hi > 0 && (lo === 0 || lo === hi)) {
-    console.warn(`[Transaction WARN] ${field} ผิดปกติ (bit-shift bug) machine=${machineId} raw=${v} (0x${v.toString(16).padStart(8, '0')}) -> แก้เป็น ${hi}`);
-    return hi;
-  }
-  console.warn(`[Transaction WARN] ${field} สูงผิดปกติ ไม่ตรงแพตเทิร์นที่รู้จัก machine=${machineId} raw=${v} -> บันทึกตามเดิม`);
-  return v;
-}
-
 // --- ESP32: รับยอดสรุปรายชั่วโมงจากเครื่อง ---
 // machine_id format: {BRANCH_CODE}_{NUMBER}  เช่น RABB01_01
 // unique key = (machine_id, period_start) — retry ด้วยข้อมูลเดิมปลอดภัย
@@ -360,15 +340,11 @@ app.post('/api/transaction', express.json(), async (req, res) => {
       return res.json({ success: false, inserted: false, message: 'ช่วงเวลาทับซ้อนกับข้อมูลเดิม' });
     }
 
-    const coinVal = sanitizeCounter(coin, 'coin', machine_id);
-    const bankVal = sanitizeCounter(bank, 'bank', machine_id);
-    const qrVal = sanitizeCounter(qr, 'qr', machine_id);
-
     const insertRes = await pool.query(
       `INSERT INTO hourly_summary (machine_id, branch_id, period_start, period_end, coin, bank, qr)
        VALUES ($1, $2, $3::timestamptz, $4::timestamptz, $5, $6, $7)
        ON CONFLICT (machine_id, period_start) DO NOTHING`,
-      [machine_id, branchId, period_start, period_end, coinVal, bankVal, qrVal]
+      [machine_id, branchId, period_start, period_end, parseInt(coin)||0, parseInt(bank)||0, parseInt(qr)||0]
     );
 
     const inserted = insertRes.rowCount > 0;
