@@ -111,22 +111,44 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
       return client.replyMessage(event.replyToken, { type: 'text', text: `ยังไม่มีข้อมูลธุรกรรมสำหรับสาขา ${branchName} ค่ะ` });
     }
 
+    // ยอด QR ใน hourly_summary รวมทั้งสแกนจ่ายผ่านธนาคาร + แลกแต้มผ่าน LINE app
+    // ดึงส่วน "แลกแต้ม" (1 แต้ม = 1 บาท) มาแสดงแยกในวงเล็บใต้แถว QR
+    const redeemRes = await pool.query(
+      `SELECT
+         machine_id,
+         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') as r_day,
+         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')   as r_week,
+         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')  as r_month,
+         SUM(points)                                                            as r_all
+       FROM point_events
+       WHERE branch_id = $1 AND type = 'redeem'
+       GROUP BY machine_id`,
+      [branchId]
+    );
+
     const machineData = {};
     const branchSummary = {
-      coin: { day: 0, week: 0, month: 0, all: 0 },
-      bank: { day: 0, week: 0, month: 0, all: 0 },
-      qr:   { day: 0, week: 0, month: 0, all: 0 }
+      coin:   { day: 0, week: 0, month: 0, all: 0 },
+      bank:   { day: 0, week: 0, month: 0, all: 0 },
+      qr:     { day: 0, week: 0, month: 0, all: 0 },
+      redeem: { day: 0, week: 0, month: 0, all: 0 }
     };
 
     const p = v => parseInt(v) || 0;
+    const redeemMap = {};
+    (redeemRes.rows || []).forEach(r => {
+      redeemMap[r.machine_id] = { day: p(r.r_day), week: p(r.r_week), month: p(r.r_month), all: p(r.r_all) };
+    });
+
     stats.forEach(row => {
       const mId = row.machine_id;
       machineData[mId] = {
-        coin: { day: p(row.coin_day), week: p(row.coin_week), month: p(row.coin_month), all: p(row.coin_all) },
-        bank: { day: p(row.bank_day), week: p(row.bank_week), month: p(row.bank_month), all: p(row.bank_all) },
-        qr:   { day: p(row.qr_day),   week: p(row.qr_week),   month: p(row.qr_month),   all: p(row.qr_all)   }
+        coin:   { day: p(row.coin_day), week: p(row.coin_week), month: p(row.coin_month), all: p(row.coin_all) },
+        bank:   { day: p(row.bank_day), week: p(row.bank_week), month: p(row.bank_month), all: p(row.bank_all) },
+        qr:     { day: p(row.qr_day),   week: p(row.qr_week),   month: p(row.qr_month),   all: p(row.qr_all)   },
+        redeem: redeemMap[mId] || { day: 0, week: 0, month: 0, all: 0 }
       };
-      ['coin', 'bank', 'qr'].forEach(t => {
+      ['coin', 'bank', 'qr', 'redeem'].forEach(t => {
         branchSummary[t].day   += machineData[mId][t].day;
         branchSummary[t].week  += machineData[mId][t].week;
         branchSummary[t].month += machineData[mId][t].month;
@@ -144,7 +166,8 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
           { type: "text", text: `📟 เครื่อง: ${mId}`, weight: "bold", size: "md", color: "#111111" },
           createSummaryRow("🪙 เหรียญ", d.coin),
           createSummaryRow("💵 ธนบัตร", d.bank),
-          createSummaryRow("📱 QR Code", d.qr)
+          createSummaryRow("📱 QR Code", d.qr),
+          ...(d.redeem.all > 0 ? [createRedeemNote(d.redeem)] : [])
         ]
       });
     });
@@ -167,6 +190,7 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
           createSummaryRow("🪙 เหรียญรวม", branchSummary.coin),
           createSummaryRow("💵 ธนบัตรรวม", branchSummary.bank),
           createSummaryRow("📱 QR รวม", branchSummary.qr),
+          ...(branchSummary.redeem.all > 0 ? [createRedeemNote(branchSummary.redeem)] : []),
           { type: "separator" },
           { type: "text", text: "* ว:24ชม. / ส:7วัน / ด:30วัน / รวม:ทั้งหมด", size: "xxs", color: "#aaaaaa" }
         ]
@@ -570,6 +594,16 @@ async function sendComparisonReport(event, idsStr, dateStr, pool, client) {
 }
 
 // --- Helpers ---
+// บรรทัดย่อยใต้แถว QR — บอกว่าในยอด QR นั้นเป็นการแลกแต้มผ่าน LINE app เท่าไหร่ (1 แต้ม = 1 บาท)
+// ใช้ text บรรทัดเดียว wrap ได้ จึงไม่กระทบความกว้างคอลัมน์ ว/ส/ด/รวม ด้านบน
+function createRedeemNote(data) {
+  return {
+    type: "text",
+    text: `(แลกแต้ม  ว: ${data.day.toLocaleString()} / ส: ${data.week.toLocaleString()} / ด: ${data.month.toLocaleString()} / รวม: ${data.all.toLocaleString()})`,
+    size: "xxs", color: "#9C27B0", wrap: true, margin: "xs"
+  };
+}
+
 function createSummaryRow(label, data) {
   return {
     type: "box", layout: "vertical", spacing: "xs", margin: "sm",
