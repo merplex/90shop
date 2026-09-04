@@ -307,19 +307,27 @@ app.delete('/api/branch/:id', async (req, res) => {
 // อ่านตัวนับ coin ผิดขนาด type ทำให้ค่าจริง n ถูกส่งมาเป็น (n<<16)|n หรือ n<<16
 // (เช่น 7 -> 458759 = 0x00070007, 20 -> 1310720 = 0x00140000)
 // ดักแพตเทิร์นนี้แล้วแก้กลับเป็นค่าจริง + log เตือน กันข้อมูลขยะเข้า DB
-// เงื่อนไข ((v & 0xFFFF) === (v >>> 16)) หรือ low word = 0 จะจริงก็ต่อเมื่อ v >= 65536
-// ในหนึ่ง period ซึ่งเป็นไปไม่ได้กับตู้ซักผ้า จึงปลอดภัยไม่ false-positive
+//
+// เพดานค่าที่สมเหตุสมผลต่อ 1 period (ต่อเครื่อง ต่อชั่วโมง) คือไม่เกิน MAX_REASONABLE_PER_PERIOD
+// ค่าเกินเพดานนี้ถือว่าผิดปกติเสมอ ไม่ว่าจะตรงแพตเทิร์น bit-shift ที่รู้จักหรือไม่ก็ตาม
+// (เจอเคสที่ไม่ตรงแพตเทิร์นเดิมมาแล้ว เช่น low word = hi mod 20 ซึ่งเดาค่าจริงไม่ได้)
+// กรณีเดาค่าจริงไม่ได้ ไม่บันทึกค่าขยะลง DB แต่บันทึกเป็น 0 แทน + log error ให้ไปตรวจสอบหน้างานเอง
+const MAX_REASONABLE_PER_PERIOD = 999;
+
 function sanitizeCounter(raw, field, machineId) {
   const v = parseInt(raw) || 0;
-  if (v <= 0xFFFF) return v < 0 ? 0 : v;
+  if (v < 0) return 0;
+  if (v <= MAX_REASONABLE_PER_PERIOD) return v;
+
   const hi = v >>> 16;
   const lo = v & 0xFFFF;
-  if (hi > 0 && (lo === 0 || lo === hi)) {
+  if (hi > 0 && (lo === 0 || lo === hi) && hi <= MAX_REASONABLE_PER_PERIOD) {
     console.warn(`[Transaction WARN] ${field} ผิดปกติ (bit-shift bug) machine=${machineId} raw=${v} (0x${v.toString(16).padStart(8, '0')}) -> แก้เป็น ${hi}`);
     return hi;
   }
-  console.warn(`[Transaction WARN] ${field} สูงผิดปกติ ไม่ตรงแพตเทิร์นที่รู้จัก machine=${machineId} raw=${v} -> บันทึกตามเดิม`);
-  return v;
+
+  console.error(`[Transaction ERROR] ${field} เกินเพดาน (>${MAX_REASONABLE_PER_PERIOD}) และไม่ตรงแพตเทิร์นที่แก้ได้ machine=${machineId} raw=${v} -> บันทึกเป็น 0 แทน กรุณาตรวจสอบยอดจริงหน้างาน`);
+  return 0;
 }
 
 // --- ESP32: รับยอดสรุปรายชั่วโมงจากเครื่อง ---
@@ -364,17 +372,17 @@ app.post('/api/transaction', express.json(), async (req, res) => {
     const bankVal = sanitizeCounter(bank, 'bank', machine_id);
     const qrVal = sanitizeCounter(qr, 'qr', machine_id);
 
-    // ON CONFLICT: ปกติแค่ DO NOTHING (idempotent retry) แต่ถ้าแถวเดิมที่ค้างอยู่มีค่าเข้าข่าย
-    // บั๊ก bit-shift (> 0xFFFF) และรอบนี้ส่งค่าที่ sanitize แล้วปกติ (<= 0xFFFF) มา ให้เขียนทับแก้ให้เลย
+    // ON CONFLICT: ปกติแค่ DO NOTHING (idempotent retry) แต่ถ้าแถวเดิมที่ค้างอยู่มีค่าเกินเพดาน
+    // (> MAX_REASONABLE_PER_PERIOD) และรอบนี้ sanitize แล้วได้ค่าปกติ (<= เพดาน) มา ให้เขียนทับแก้ให้เลย
     // กันปัญหาแถวที่บันทึกผิดไปแล้วก่อน deploy fix นี้ค้างเป็นค่าพังตลอดไป
     const insertRes = await pool.query(
       `INSERT INTO hourly_summary (machine_id, branch_id, period_start, period_end, coin, bank, qr)
        VALUES ($1, $2, $3::timestamptz, $4::timestamptz, $5, $6, $7)
        ON CONFLICT (machine_id, period_start) DO UPDATE SET
          coin = EXCLUDED.coin, bank = EXCLUDED.bank, qr = EXCLUDED.qr
-       WHERE (hourly_summary.coin > 65535 OR hourly_summary.bank > 65535 OR hourly_summary.qr > 65535)
-         AND EXCLUDED.coin <= 65535 AND EXCLUDED.bank <= 65535 AND EXCLUDED.qr <= 65535`,
-      [machine_id, branchId, period_start, period_end, coinVal, bankVal, qrVal]
+       WHERE (hourly_summary.coin > $8 OR hourly_summary.bank > $8 OR hourly_summary.qr > $8)
+         AND EXCLUDED.coin <= $8 AND EXCLUDED.bank <= $8 AND EXCLUDED.qr <= $8`,
+      [machine_id, branchId, period_start, period_end, coinVal, bankVal, qrVal, MAX_REASONABLE_PER_PERIOD]
     );
 
     const inserted = insertRes.rowCount > 0;
