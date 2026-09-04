@@ -364,10 +364,16 @@ app.post('/api/transaction', express.json(), async (req, res) => {
     const bankVal = sanitizeCounter(bank, 'bank', machine_id);
     const qrVal = sanitizeCounter(qr, 'qr', machine_id);
 
+    // ON CONFLICT: ปกติแค่ DO NOTHING (idempotent retry) แต่ถ้าแถวเดิมที่ค้างอยู่มีค่าเข้าข่าย
+    // บั๊ก bit-shift (> 0xFFFF) และรอบนี้ส่งค่าที่ sanitize แล้วปกติ (<= 0xFFFF) มา ให้เขียนทับแก้ให้เลย
+    // กันปัญหาแถวที่บันทึกผิดไปแล้วก่อน deploy fix นี้ค้างเป็นค่าพังตลอดไป
     const insertRes = await pool.query(
       `INSERT INTO hourly_summary (machine_id, branch_id, period_start, period_end, coin, bank, qr)
        VALUES ($1, $2, $3::timestamptz, $4::timestamptz, $5, $6, $7)
-       ON CONFLICT (machine_id, period_start) DO NOTHING`,
+       ON CONFLICT (machine_id, period_start) DO UPDATE SET
+         coin = EXCLUDED.coin, bank = EXCLUDED.bank, qr = EXCLUDED.qr
+       WHERE (hourly_summary.coin > 65535 OR hourly_summary.bank > 65535 OR hourly_summary.qr > 65535)
+         AND EXCLUDED.coin <= 65535 AND EXCLUDED.bank <= 65535 AND EXCLUDED.qr <= 65535`,
       [machine_id, branchId, period_start, period_end, coinVal, bankVal, qrVal]
     );
 
