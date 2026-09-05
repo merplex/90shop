@@ -327,6 +327,9 @@ app.post('/api/transaction', express.json(), async (req, res) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
+  // [TEMP DEBUG] log body ดิบที่ ESP32 ส่งมา — ใช้สืบเคส bank หาย / period ถูกรวม (ลบออกเมื่อได้ข้อมูลแล้ว)
+  console.log('[TX RAW]', JSON.stringify(req.body));
+
   const { machine_id, period_start, period_end, coin = 0, bank = 0, qr = 0 } = req.body;
 
   if (!machine_id || !period_start || !period_end) {
@@ -353,6 +356,7 @@ app.post('/api/transaction', express.json(), async (req, res) => {
       [machine_id, period_start, period_end]
     );
     if (overlap.rows.length > 0) {
+      console.log(`[TX RAW] -> REJECTED overlap machine=${machine_id} ${period_start}..${period_end}`);
       return res.json({ success: false, inserted: false, message: 'ช่วงเวลาทับซ้อนกับข้อมูลเดิม' });
     }
 
@@ -368,6 +372,7 @@ app.post('/api/transaction', express.json(), async (req, res) => {
     );
 
     const inserted = insertRes.rowCount > 0;
+    console.log(`[TX RAW] -> ${inserted ? 'INSERTED' : 'SKIPPED(conflict on period_start)'} machine=${machine_id} coin=${coinVal} bank=${bankVal} qr=${qrVal}`);
     return res.json({ success: true, inserted, message: inserted ? 'บันทึกสำเร็จ' : 'ข้อมูลซ้ำ ข้ามแล้ว' });
   } catch (err) {
     console.error('[ESP32 Transaction Error]', err.message);
