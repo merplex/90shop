@@ -304,22 +304,18 @@ app.delete('/api/branch/:id', async (req, res) => {
 
 // --- ESP32: sanitize ค่าตัวนับที่รับมาจากเครื่อง ---
 // เฟิร์มแวร์ ESP32 บางรุ่น (พบครั้งแรก RABBIT01_M02 / 90wash01_Wash01 ช่วง ก.ย. 2026)
-// อ่านตัวนับ coin ผิดขนาด type ทำให้ค่าจริง n ถูกส่งมาเป็น (n<<16)|n หรือ n<<16
-// (เช่น 7 -> 458759 = 0x00070007, 20 -> 1310720 = 0x00140000)
-// ดักแพตเทิร์นนี้แล้วแก้กลับเป็นค่าจริง + log เตือน กันข้อมูลขยะเข้า DB
-// เงื่อนไข ((v & 0xFFFF) === (v >>> 16)) หรือ low word = 0 จะจริงก็ต่อเมื่อ v >= 65536
-// ในหนึ่ง period ซึ่งเป็นไปไม่ได้กับตู้ซักผ้า จึงปลอดภัยไม่ false-positive
+// อ่านตัวนับ coin ผิดขนาด type ทำให้ค่าจริง n (16 บิต) ถูกอ่านเป็น 32 บิต แล้วคาบ 2 ไบต์
+// ของตัวแปรข้างเคียงในหน่วยความจำมาด้วย เช่น 7 -> 458759 = 0x00070007 (คาบ 7 ซ้ำ)
+// หรือ 35 -> 2293775 = 0x0023000F (คาบขยะ 0x000F ไม่ใช่ 0/ไม่เท่ากับ 35) — เคยดักแค่ 2 เคสแรก
+// แต่ low 16 บิตที่คาบมาเป็นค่าอะไรก็ได้ ไม่จำเป็นต้องเป็น 0 หรือ copy ของ high
+// จึงต้องแก้แบบไม่เช็ค low เลย: v > 65535 ในหนึ่ง period เป็นไปไม่ได้กับตู้ซักผ้าอยู่แล้ว
+// ตัดเอา high 16 บิตเสมอ ปลอดภัยไม่ false-positive กับค่าใช้งานจริง (ไม่เคยเกิน 65535)
 function sanitizeCounter(raw, field, machineId) {
   const v = parseInt(raw) || 0;
   if (v <= 0xFFFF) return v < 0 ? 0 : v;
   const hi = v >>> 16;
-  const lo = v & 0xFFFF;
-  if (hi > 0 && (lo === 0 || lo === hi)) {
-    console.warn(`[Transaction WARN] ${field} ผิดปกติ (bit-shift bug) machine=${machineId} raw=${v} (0x${v.toString(16).padStart(8, '0')}) -> แก้เป็น ${hi}`);
-    return hi;
-  }
-  console.warn(`[Transaction WARN] ${field} สูงผิดปกติ ไม่ตรงแพตเทิร์นที่รู้จัก machine=${machineId} raw=${v} -> บันทึกตามเดิม`);
-  return v;
+  console.warn(`[Transaction WARN] ${field} ผิดปกติ (bit-shift bug) machine=${machineId} raw=${v} (0x${v.toString(16).padStart(8, '0')}) -> แก้เป็น ${hi}`);
+  return hi;
 }
 
 // --- ESP32: รับยอดสรุปรายชั่วโมงจากเครื่อง ---
