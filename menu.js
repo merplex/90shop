@@ -1,3 +1,23 @@
+// --- ช่วงเวลา ว(วัน)/ส(สัปดาห์)/ด(เดือน) แบบปฏิทินสากล (เขตเวลาไทย, UTC+7 คงที่ ไม่มี DST) ---
+// วัน   = วันนี้ 00:00–23:59 น.
+// สัปดาห์ = จันทร์ 00:00 น. – อาทิตย์ 23:59 น. (ISO week)
+// เดือน  = วันที่ 1 ของเดือน 00:00 น. – สิ้นเดือน (ปฏิทินสากล)
+// คำนวณครั้งเดียวในโค้ด แล้วส่งเป็น timestamptz param เข้า query แทนการ inline NOW()-INTERVAL ซ้ำๆ
+const THAI_OFFSET_MS = 7 * 60 * 60 * 1000;
+function getThaiPeriodBounds() {
+  const thaiNow = new Date(Date.now() + THAI_OFFSET_MS); // wall-clock เวลาไทย อ่านผ่าน getUTC* ได้ตรงๆ
+  const y = thaiNow.getUTCFullYear(), m = thaiNow.getUTCMonth(), d = thaiNow.getUTCDate();
+  const dow = thaiNow.getUTCDay(); // 0=อาทิตย์..6=เสาร์
+  const daysSinceMonday = (dow + 6) % 7; // จันทร์=0
+
+  const toUtc = (thaiMs) => new Date(thaiMs - THAI_OFFSET_MS);
+  return {
+    dayStart:   toUtc(Date.UTC(y, m, d, 0, 0, 0)),
+    weekStart:  toUtc(Date.UTC(y, m, d - daysSinceMonday, 0, 0, 0)),
+    monthStart: toUtc(Date.UTC(y, m, 1, 0, 0, 0))
+  };
+}
+
 const ALPHABET_GROUPS = {
   "A-B": "AB".split(""), "C-D": "CD".split(""), "E-F": "EF".split(""),
   "G-H": "GH".split(""), "I-J": "IJ".split(""), "K-L": "KL".split(""),
@@ -84,26 +104,27 @@ function getBranchSelectMenu(mapping) {
 
 async function sendBranchReport(event, branchId, branchName, pool, client) {
   try {
+    const { dayStart, weekStart, monthStart } = getThaiPeriodBounds();
     const res = await pool.query(
       `SELECT
          machine_id,
-         SUM(coin) FILTER (WHERE period_start >= NOW() - INTERVAL '24 hours') as coin_day,
-         SUM(coin) FILTER (WHERE period_start >= NOW() - INTERVAL '7 days')   as coin_week,
-         SUM(coin) FILTER (WHERE period_start >= NOW() - INTERVAL '30 days')  as coin_month,
-         SUM(coin)                                                              as coin_all,
-         SUM(bank) FILTER (WHERE period_start >= NOW() - INTERVAL '24 hours') as bank_day,
-         SUM(bank) FILTER (WHERE period_start >= NOW() - INTERVAL '7 days')   as bank_week,
-         SUM(bank) FILTER (WHERE period_start >= NOW() - INTERVAL '30 days')  as bank_month,
-         SUM(bank)                                                              as bank_all,
-         SUM(qr)   FILTER (WHERE period_start >= NOW() - INTERVAL '24 hours') as qr_day,
-         SUM(qr)   FILTER (WHERE period_start >= NOW() - INTERVAL '7 days')   as qr_week,
-         SUM(qr)   FILTER (WHERE period_start >= NOW() - INTERVAL '30 days')  as qr_month,
-         SUM(qr)                                                                as qr_all
+         SUM(coin) FILTER (WHERE period_start >= $2) as coin_day,
+         SUM(coin) FILTER (WHERE period_start >= $3) as coin_week,
+         SUM(coin) FILTER (WHERE period_start >= $4) as coin_month,
+         SUM(coin)                                    as coin_all,
+         SUM(bank) FILTER (WHERE period_start >= $2) as bank_day,
+         SUM(bank) FILTER (WHERE period_start >= $3) as bank_week,
+         SUM(bank) FILTER (WHERE period_start >= $4) as bank_month,
+         SUM(bank)                                    as bank_all,
+         SUM(qr)   FILTER (WHERE period_start >= $2) as qr_day,
+         SUM(qr)   FILTER (WHERE period_start >= $3) as qr_week,
+         SUM(qr)   FILTER (WHERE period_start >= $4) as qr_month,
+         SUM(qr)                                      as qr_all
        FROM hourly_summary
        WHERE branch_id = $1
        GROUP BY machine_id
        ORDER BY machine_id`,
-      [branchId]
+      [branchId, dayStart, weekStart, monthStart]
     );
     const stats = res.rows || [];
 
@@ -116,14 +137,14 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
     const redeemRes = await pool.query(
       `SELECT
          machine_id,
-         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') as r_day,
-         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')   as r_week,
-         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')  as r_month,
-         SUM(points)                                                            as r_all
+         SUM(points) FILTER (WHERE created_at >= $2) as r_day,
+         SUM(points) FILTER (WHERE created_at >= $3) as r_week,
+         SUM(points) FILTER (WHERE created_at >= $4) as r_month,
+         SUM(points)                                  as r_all
        FROM point_events
        WHERE branch_id = $1 AND type = 'redeem'
        GROUP BY machine_id`,
-      [branchId]
+      [branchId, dayStart, weekStart, monthStart]
     );
 
     const machineData = {};
@@ -259,18 +280,19 @@ function getPointBranchSelectMenu(mapping, type) {
 
 async function sendPointReport(event, type, branchId, branchName, pool, client) {
   try {
+    const { dayStart, weekStart, monthStart } = getThaiPeriodBounds();
     const res = await pool.query(
       `SELECT
          machine_id,
-         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '24 hours') as pt_day,
-         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')   as pt_week,
-         SUM(points) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days')  as pt_month,
-         SUM(points)                                                            as pt_all
+         SUM(points) FILTER (WHERE created_at >= $3) as pt_day,
+         SUM(points) FILTER (WHERE created_at >= $4) as pt_week,
+         SUM(points) FILTER (WHERE created_at >= $5) as pt_month,
+         SUM(points)                                  as pt_all
        FROM point_events
        WHERE branch_id = $1 AND type = $2
        GROUP BY machine_id
        ORDER BY machine_id`,
-      [branchId, type]
+      [branchId, type, dayStart, weekStart, monthStart]
     );
     const stats = res.rows || [];
 
