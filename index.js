@@ -349,17 +349,9 @@ app.post('/api/transaction', express.json(), async (req, res) => {
     }
     const branchId = branchRes.rows[0].id;
 
-    const overlap = await pool.query(
-      `SELECT 1 FROM hourly_summary
-       WHERE machine_id = $1 AND period_start < $3::timestamptz AND period_end > $2::timestamptz
-       LIMIT 1`,
-      [machine_id, period_start, period_end]
-    );
-    if (overlap.rows.length > 0) {
-      console.log(`[TX RAW] -> REJECTED overlap machine=${machine_id} ${period_start}..${period_end}`);
-      return res.json({ success: false, inserted: false, message: 'ช่วงเวลาทับซ้อนกับข้อมูลเดิม' });
-    }
-
+    // ไม่เช็ค overlap แล้ว — สตรีม coin/bank (period ยาว) กับ QR (period สั้นตอนสแกน)
+    // ทับช่วงเวลากันเป็นปกติ การเช็ค overlap เดิมทำให้ period coin/bank ที่คร่อม QR
+    // ถูกปัดทิ้งทั้งก้อน = เสียข้อมูล. กันซ้ำด้วย ON CONFLICT (machine_id, period_start) พอ
     const coinVal = sanitizeCounter(coin, 'coin', machine_id);
     const bankVal = sanitizeCounter(bank, 'bank', machine_id);
     const qrVal = sanitizeCounter(qr, 'qr', machine_id);
