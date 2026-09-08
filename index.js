@@ -77,6 +77,9 @@ pool.query(`
 
 // --- 90railway: รายงานยอดสะสม/ใช้แต้ม แยกตามสาขา (ไม่ผูกกับ LINE user) ---
 // machine_id format เดียวกับ /api/transaction: {BRANCH_CODE}_{NUMBER}
+// 90railway บังคับ .toUpperCase() ตอนรับจาก ESP32/LIFF ชื่อสาขา/เครื่องเลย case ไม่ตรงกับ 90shop
+// จึง match สาขาแบบไม่สนตัวพิมพ์ + ปรับ machine_id ให้ตรงกับที่ 90shop ใช้จริง (จาก hourly_summary)
+// และ "ไม่สร้างสาขาใหม่" — ถ้าไม่รู้จักให้ตีกลับ ไม่งั้นได้สาขากำพร้าที่ไม่ผูกเจ้าของ รายงานก็ไม่ขึ้นอยู่ดี
 app.post('/api/point-event', express.json(), async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey || apiKey !== process.env.ESP32_API_KEY) {
@@ -95,15 +98,28 @@ app.post('/api/point-event', express.json(), async (req, res) => {
   const branchCode = machine_id.substring(0, underscoreIdx);
 
   try {
-    let branchRes = await pool.query('SELECT id FROM branches WHERE branch_name = $1', [branchCode]);
+    const branchRes = await pool.query(
+      'SELECT id FROM branches WHERE LOWER(branch_name) = LOWER($1) LIMIT 1',
+      [branchCode]
+    );
     if (branchRes.rows.length === 0) {
-      branchRes = await pool.query('INSERT INTO branches (branch_name) VALUES ($1) RETURNING id', [branchCode]);
+      console.warn(`[Point Event] ไม่รู้จักสาขา "${branchCode}" (machine_id=${machine_id}) — ข้าม`);
+      return res.status(404).json({ error: `ไม่รู้จักสาขา "${branchCode}" ไม่บันทึก` });
     }
     const branchId = branchRes.rows[0].id;
 
+    // ปรับ machine_id ให้ตรงกับสตริงที่ hourly_summary ใช้ (ให้รายงานแยกเครื่อง/บรรทัดแลกแต้มจับคู่ได้)
+    const canonRes = await pool.query(
+      `SELECT machine_id FROM hourly_summary
+       WHERE branch_id = $1 AND LOWER(machine_id) = LOWER($2)
+       ORDER BY period_start DESC LIMIT 1`,
+      [branchId, machine_id]
+    );
+    const canonicalMachineId = canonRes.rows[0] ? canonRes.rows[0].machine_id : machine_id;
+
     await pool.query(
       'INSERT INTO point_events (machine_id, branch_id, points, type) VALUES ($1, $2, $3, $4)',
-      [machine_id, branchId, parseInt(points), type]
+      [canonicalMachineId, branchId, parseInt(points), type]
     );
     return res.json({ success: true });
   } catch (err) {

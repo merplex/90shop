@@ -156,9 +156,10 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
     };
 
     const p = v => parseInt(v) || 0;
+    // key ด้วย machine_id ตัวพิมพ์เล็ก กันเคส point_events เก็บ case ไม่ตรงกับ hourly_summary
     const redeemMap = {};
     (redeemRes.rows || []).forEach(r => {
-      redeemMap[r.machine_id] = { day: p(r.r_day), week: p(r.r_week), month: p(r.r_month), all: p(r.r_all) };
+      redeemMap[String(r.machine_id).toLowerCase()] = { day: p(r.r_day), week: p(r.r_week), month: p(r.r_month), all: p(r.r_all) };
     });
 
     stats.forEach(row => {
@@ -167,7 +168,7 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
         coin:   { day: p(row.coin_day), week: p(row.coin_week), month: p(row.coin_month), all: p(row.coin_all) },
         bank:   { day: p(row.bank_day), week: p(row.bank_week), month: p(row.bank_month), all: p(row.bank_all) },
         qr:     { day: p(row.qr_day),   week: p(row.qr_week),   month: p(row.qr_month),   all: p(row.qr_all)   },
-        redeem: redeemMap[mId] || { day: 0, week: 0, month: 0, all: 0 }
+        redeem: redeemMap[String(mId).toLowerCase()] || { day: 0, week: 0, month: 0, all: 0 }
       };
       ['coin', 'bank', 'qr', 'redeem'].forEach(t => {
         branchSummary[t].day   += machineData[mId][t].day;
@@ -351,7 +352,10 @@ async function sendPointReport(event, type, branchId, branchName, pool, client) 
       { type: "flex", altText: `${label} แยกเครื่อง`, contents: flexAllMachines },
       { type: "flex", altText: `สรุปภาพรวมสาขา`, contents: flexSummary }
     ]);
-  } catch (err) { console.error(err); }
+  } catch (err) {
+    console.error('[sendPointReport Error]', err);
+    try { return await client.replyMessage(event.replyToken, { type: 'text', text: '⚠️ ดึงรายงานแต้มไม่สำเร็จ กรุณาลองใหม่อีกครั้งค่ะ' }); } catch (_) {}
+  }
 }
 
 // --- 3. รายงานรายเดือน (SQL Version) ---
