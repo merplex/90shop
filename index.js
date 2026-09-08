@@ -283,7 +283,6 @@ async function deleteBranchCascade(branchId) {
          SELECT machine_id FROM hourly_summary WHERE branch_id = $1
          UNION SELECT machine_id FROM point_events WHERE branch_id = $1
          UNION SELECT machine_id FROM balance_requests WHERE branch_id = $1
-         UNION SELECT machine_id FROM transactions WHERE branch_id = $1
        ) x`,
       [branchId]
     );
@@ -292,7 +291,6 @@ async function deleteBranchCascade(branchId) {
       await client2.query('DELETE FROM hourly_summary WHERE machine_id = ANY($1)', [machineIds]);
       await client2.query('DELETE FROM point_events WHERE machine_id = ANY($1)', [machineIds]);
       await client2.query('DELETE FROM balance_requests WHERE machine_id = ANY($1)', [machineIds]);
-      await client2.query('DELETE FROM transactions WHERE machine_id = ANY($1)', [machineIds]);
     }
     await client2.query('DELETE FROM branches WHERE id = $1', [branchId]);
     await client2.query('COMMIT');
