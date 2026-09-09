@@ -186,11 +186,11 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
         type: "box", layout: "vertical", margin: "md", spacing: "sm",
         contents: [
           {
-            type: "box", layout: "horizontal", spacing: "sm",
+            type: "box", layout: "horizontal",
             contents: [
-              { type: "text", text: "🧹", size: "lg", flex: 0, align: "center", gravity: "center", action: { type: "postback", data: `CONFIRM_CLEAR_MACHINE:${branchId}|${branchName}|${mId}` } },
-              { type: "text", text: "❌", size: "lg", flex: 0, align: "center", gravity: "center", margin: "lg", action: { type: "postback", data: `CONFIRM_DELETE_MACHINE:${branchId}|${branchName}|${mId}` } },
-              { type: "text", text: `เครื่อง: ${mId}`, weight: "bold", size: "md", color: "#111111", flex: 1, margin: "lg", gravity: "center", wrap: true }
+              { type: "text", text: `📟 เครื่อง: ${mId}`, weight: "bold", size: "md", color: "#111111", flex: 1, gravity: "center", wrap: true },
+              { type: "text", text: "🧹", size: "sm", flex: 0, align: "end", gravity: "center", action: { type: "postback", data: `CONFIRM_CLEAR_MACHINE:${branchId}|${branchName}|${mId}` } },
+              { type: "text", text: "❌", size: "sm", flex: 0, align: "end", gravity: "center", margin: "lg", action: { type: "postback", data: `CONFIRM_DELETE_MACHINE:${branchId}|${branchName}|${mId}` } }
             ]
           },
           createSummaryRow("🪙 เหรียญ", d.coin),
