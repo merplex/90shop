@@ -414,7 +414,8 @@ async function verifyLineUser(accessToken) {
   }
 }
 
-// --- จัดการยอดเงิน: รายชื่อสาขาเฉพาะของ LINE user นี้ (super admin เห็นทุกสาขา) ---
+// --- จัดการยอดเงิน: รายชื่อสาขาเฉพาะที่ LINE user นี้ผูกไว้ใน owner_branch_mapping เท่านั้น ---
+// (แม้เป็น super admin ก็เห็นเฉพาะสาขาที่ผูก — ถ้าต้องจัดการสาขาอื่นให้ผูก mapping เพิ่ม)
 app.get('/api/my-branches', async (req, res) => {
   try {
     const authHeader = req.headers['authorization'] || '';
@@ -423,12 +424,6 @@ app.get('/api/my-branches', async (req, res) => {
     const userId = await verifyLineUser(accessToken);
     if (!userId) {
       return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
-    }
-
-    const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
-    if (superAdmin.rows.length > 0) {
-      const all = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
-      return res.json(all.rows);
     }
 
     const owned = await pool.query(
