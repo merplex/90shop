@@ -20,6 +20,7 @@ const {
   sendPointReport,
   sendMonthlyYearMenu,
   sendMonthlyYearView,
+  buildMachinePeriodReport,
   ALPHABET_GROUPS,
   chunkArray
 } = require('./menu');
@@ -458,6 +459,47 @@ app.get('/api/machines/:branchId', async (req, res) => {
   } catch (e) {
     console.error('[machines Error]', e.message);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดรายชื่อเครื่อง' });
+  }
+});
+
+// --- รายงานต่อเครื่อง (หน้า LIFF): เลือกหลายเครื่อง/หลายสาขา + ช่วงเวลา แล้วดันรายงาน Flex เข้าแชท ---
+app.post('/api/machine-report', express.json(), async (req, res) => {
+  try {
+    const { accessToken, machineIds, period, start, end } = req.body;
+    const userId = await verifyLineUser(accessToken);
+    if (!userId) return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
+
+    if (!Array.isArray(machineIds) || machineIds.length === 0) {
+      return res.status(400).json({ message: 'กรุณาเลือกอย่างน้อย 1 เครื่อง' });
+    }
+    if (!['today', 'week', 'month', 'custom'].includes(period)) {
+      return res.status(400).json({ message: 'ช่วงเวลาไม่ถูกต้อง' });
+    }
+
+    // กรองเฉพาะเครื่องที่อยู่ในสาขาที่ผู้ใช้มีสิทธิ์ (super admin เห็นหมด)
+    const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
+    let allowed;
+    if (superAdmin.rows.length > 0) {
+      allowed = await pool.query('SELECT DISTINCT machine_id FROM hourly_summary WHERE machine_id = ANY($1)', [machineIds]);
+    } else {
+      allowed = await pool.query(
+        `SELECT DISTINCT h.machine_id FROM hourly_summary h
+         JOIN owner_branch_mapping m ON m.branch_id = h.branch_id
+         WHERE m.owner_line_id = $1 AND h.machine_id = ANY($2)`,
+        [userId, machineIds]
+      );
+    }
+    const okIds = allowed.rows.map(r => r.machine_id);
+    if (okIds.length === 0) return res.status(400).json({ message: 'ไม่พบเครื่องที่เลือก หรือไม่มีสิทธิ์เข้าถึง' });
+
+    const { messages, error } = await buildMachinePeriodReport(pool, okIds, period, start, end);
+    if (error) return res.status(400).json({ message: error });
+
+    await client.pushMessage(userId, messages);
+    return res.json({ ok: true, count: okIds.length });
+  } catch (e) {
+    console.error('[machine-report Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการสร้างรายงาน' });
   }
 });
 

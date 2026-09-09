@@ -55,7 +55,7 @@ function getReportSelectionMenu() {
       contents: [
         { type: "button", style: "primary", color: "#00b900", action: { type: "postback", label: "รายงานต่อสาขา", data: "REPORT_BRANCH_SELECT" } },
         { type: "button", style: "secondary", action: { type: "postback", label: "รายงานรวมรายเดือน", data: "REPORT_MONTHLY_TOTAL" } },
-        { type: "button", style: "secondary", action: { type: "postback", label: "รายงานต่อเครื่อง", data: "REPORT_MACHINE_SELECT" } },
+        { type: "button", style: "secondary", action: { type: "uri", label: "รายงานต่อเครื่อง", uri: "https://liff.line.me/2009523613-hLnRGrZC?mode=machinereport" } },
         { type: "button", style: "primary", color: "#9C27B0", action: { type: "postback", label: "รายงานแต้มสะสม", data: "POINT_REPORT_MENU" } },
         { type: "button", style: "primary", color: "#FFB74D", action: { type: "uri", label: "จัดการยอดเงิน", uri: "https://liff.line.me/2009523613-hLnRGrZC?mode=balance" } }
       ]
@@ -185,7 +185,14 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
       machineRows.push({
         type: "box", layout: "vertical", margin: "md", spacing: "sm",
         contents: [
-          { type: "text", text: `📟 เครื่อง: ${mId}`, weight: "bold", size: "md", color: "#111111" },
+          {
+            type: "box", layout: "horizontal", spacing: "sm",
+            contents: [
+              { type: "text", text: "🧹", size: "lg", flex: 0, align: "center", gravity: "center", action: { type: "postback", data: `CONFIRM_CLEAR_MACHINE:${branchId}|${branchName}|${mId}` } },
+              { type: "text", text: "❌", size: "lg", flex: 0, align: "center", gravity: "center", margin: "lg", action: { type: "postback", data: `CONFIRM_DELETE_MACHINE:${branchId}|${branchName}|${mId}` } },
+              { type: "text", text: `เครื่อง: ${mId}`, weight: "bold", size: "md", color: "#111111", flex: 1, margin: "lg", gravity: "center", wrap: true }
+            ]
+          },
           createSummaryRow("🪙 เหรียญ", d.coin),
           createSummaryRow("💵 ธนบัตร", d.bank),
           createSummaryRow("📱 QR Code", d.qr),
@@ -197,7 +204,10 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
     const flexAllMachines = {
       type: "bubble",
       size: "giga",
-      header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [{ type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" }] },
+      header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [
+        { type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" },
+        { type: "text", text: "🧹 = ล้างยอดเป็น 0   ❌ = ลบเครื่อง (มีให้ยืนยันก่อน)", color: "#dddddd", size: "xxs", wrap: true }
+      ] },
       body: { type: "box", layout: "vertical", contents: machineRows }
     };
 
@@ -725,6 +735,112 @@ async function sendComparisonReport(event, idsStr, dateStr, pool, client) {
   }
 }
 
+// --- รายงานต่อเครื่อง (เลือกจากหน้า LIFF) : แยก เหรียญ/ธนบัตร/QR/แลกแต้ม ตามช่วงเวลาที่เลือก ---
+function machineReportPeriodBounds(period, startStr, endStr) {
+  const { dayStart, weekStart, monthStart } = getThaiPeriodBounds();
+  const now = new Date();
+  if (period === 'today') return { from: dayStart, to: now, label: 'วันนี้' };
+  if (period === 'week')  return { from: weekStart, to: now, label: 'สัปดาห์นี้' };
+  if (period === 'month') return { from: monthStart, to: now, label: 'เดือนนี้' };
+  // custom: YYYY-MM-DD (เวลาไทย) รวมปลายทั้งวัน
+  const from = new Date(`${startStr}T00:00:00+07:00`);
+  const to = new Date(`${endStr}T23:59:59.999+07:00`);
+  return { from, to, label: `${startStr} – ${endStr}` };
+}
+
+function mrRow(label, value, unit = '฿', color = '#000000') {
+  return {
+    type: "box", layout: "horizontal", margin: "sm",
+    contents: [
+      { type: "text", text: label, size: "sm", color: "#555555", flex: 5 },
+      { type: "text", text: unit === '฿' ? `฿${value.toLocaleString()}` : `${value.toLocaleString()} ${unit}`, size: "sm", weight: "bold", align: "end", color, flex: 5 }
+    ]
+  };
+}
+
+// คืน array ของ flex messages (การ์ดแยกเครื่อง + การ์ดสรุปรวมเฉพาะเครื่องที่เลือก)
+async function buildMachinePeriodReport(pool, machineIds, period, startStr, endStr) {
+  const { from, to, label } = machineReportPeriodBounds(period, startStr, endStr);
+  if (period === 'custom' && (isNaN(from) || isNaN(to) || from > to)) {
+    return { error: 'ช่วงวันที่ไม่ถูกต้อง' };
+  }
+
+  const moneyRes = await pool.query(
+    `SELECT machine_id, SUM(coin)::bigint coin, SUM(bank)::bigint bank, SUM(qr)::bigint qr
+     FROM hourly_summary
+     WHERE machine_id = ANY($1) AND period_start >= $2 AND period_start <= $3
+     GROUP BY machine_id`,
+    [machineIds, from.toISOString(), to.toISOString()]
+  );
+  const redeemRes = await pool.query(
+    `SELECT machine_id, SUM(points)::bigint pts
+     FROM point_events
+     WHERE machine_id = ANY($1) AND type = 'redeem' AND created_at >= $2 AND created_at <= $3
+     GROUP BY machine_id`,
+    [machineIds, from.toISOString(), to.toISOString()]
+  );
+
+  const moneyMap = {}, redeemMap = {};
+  moneyRes.rows.forEach(r => { moneyMap[r.machine_id.toLowerCase()] = { coin: Number(r.coin), bank: Number(r.bank), qr: Number(r.qr) }; });
+  redeemRes.rows.forEach(r => { redeemMap[r.machine_id.toLowerCase()] = Number(r.pts); });
+
+  const tot = { coin: 0, bank: 0, qr: 0, redeem: 0 };
+  const machineCards = machineIds.map(mId => {
+    const m = moneyMap[mId.toLowerCase()] || { coin: 0, bank: 0, qr: 0 };
+    const pts = redeemMap[mId.toLowerCase()] || 0;
+    tot.coin += m.coin; tot.bank += m.bank; tot.qr += m.qr; tot.redeem += pts;
+    return {
+      type: "box", layout: "vertical", margin: "md", spacing: "xs",
+      contents: [
+        { type: "text", text: `📟 ${mId}`, weight: "bold", size: "sm", color: "#111111", wrap: true },
+        mrRow("🪙 เหรียญ", m.coin),
+        mrRow("💵 ธนบัตร", m.bank),
+        mrRow("📱 QR Code", m.qr),
+        ...(pts > 0 ? [mrRow("🎫 แลกแต้ม", pts, "แต้ม", "#9C27B0")] : []),
+        { type: "box", layout: "horizontal", contents: [
+          { type: "text", text: "รวมเครื่องนี้", size: "xs", color: "#888888", flex: 5 },
+          { type: "text", text: `฿${(m.coin + m.bank + m.qr).toLocaleString()}`, size: "xs", weight: "bold", align: "end", flex: 5 }
+        ] },
+        { type: "separator", margin: "md" }
+      ]
+    };
+  });
+
+  const cardMachines = {
+    type: "bubble", size: "giga",
+    header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [
+      { type: "text", text: "📊 รายงานต่อเครื่อง", color: "#ffffff", weight: "bold" },
+      { type: "text", text: `ช่วง: ${label}  •  ${machineIds.length} เครื่อง`, color: "#ffffff", size: "xs" }
+    ] },
+    body: { type: "box", layout: "vertical", contents: machineCards }
+  };
+
+  const cardSummary = {
+    type: "bubble", size: "giga",
+    header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [
+      { type: "text", text: "🏆 สรุปรวม (เฉพาะเครื่องที่เลือก)", color: "#ffffff", weight: "bold" },
+      { type: "text", text: `ช่วง: ${label}`, color: "#ffffff", size: "xs" }
+    ] },
+    body: { type: "box", layout: "vertical", spacing: "sm", contents: [
+      mrRow("🪙 เหรียญรวม", tot.coin),
+      mrRow("💵 ธนบัตรรวม", tot.bank),
+      mrRow("📱 QR รวม", tot.qr),
+      ...(tot.redeem > 0 ? [mrRow("🎫 แลกแต้มรวม", tot.redeem, "แต้ม", "#9C27B0")] : []),
+      { type: "separator", margin: "md" },
+      { type: "box", layout: "horizontal", margin: "md", contents: [
+        { type: "text", text: "รวมเงินทั้งหมด", weight: "bold", color: "#FF1493", flex: 5 },
+        { type: "text", text: `฿${(tot.coin + tot.bank + tot.qr).toLocaleString()}`, weight: "bold", align: "end", color: "#FF1493", flex: 5 }
+      ] },
+      { type: "text", text: "* ยอดเงินไม่รวมส่วนที่จ่ายด้วยแต้ม", size: "xxs", color: "#aaaaaa", margin: "sm" }
+    ] }
+  };
+
+  return { messages: [
+    { type: "flex", altText: `รายงานต่อเครื่อง (${label})`, contents: cardMachines },
+    { type: "flex", altText: `สรุปรวม (${label})`, contents: cardSummary }
+  ] };
+}
+
 // --- Helpers ---
 // บรรทัดย่อยใต้แถว QR — บอกว่าในยอด QR นั้นเป็นการแลกแต้มผ่าน LINE app เท่าไหร่ (1 แต้ม = 1 บาท)
 // ใช้ text บรรทัดเดียว wrap ได้ จึงไม่กระทบความกว้างคอลัมน์ ว/ส/ด/รวม ด้านบน
@@ -798,6 +914,7 @@ module.exports = {
   getPointReportMenu,
   handlePointReportLogic,
   sendPointReport,
+  buildMachinePeriodReport,
   ALPHABET_GROUPS,
   chunkArray
 };
