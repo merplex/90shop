@@ -214,7 +214,7 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
           createSummaryRow("📱 QR รวม", branchSummary.qr),
           ...(branchSummary.redeem.all > 0 ? [createRedeemNote(branchSummary.redeem)] : []),
           { type: "separator" },
-          { type: "text", text: "* ว:24ชม. / ส:7วัน / ด:30วัน / รวม:ทั้งหมด", size: "xxs", color: "#aaaaaa" }
+          { type: "text", text: "* D=วันนี้ / W=สัปดาห์นี้ / M=เดือนนี้ / รวม=ทั้งหมด", size: "xxs", color: "#aaaaaa" }
         ]
       }
     };
@@ -343,7 +343,7 @@ async function sendPointReport(event, type, branchId, branchName, pool, client) 
           { type: "text", text: `${label} รวมทุกเครื่อง`, weight: "bold", size: "sm" },
           createSummaryRow(`${icon} แต้มรวม`, branchSummary),
           { type: "separator" },
-          { type: "text", text: "* ว:24ชม. / ส:7วัน / ด:30วัน / รวม:ทั้งหมด", size: "xxs", color: "#aaaaaa" }
+          { type: "text", text: "* D=วันนี้ / W=สัปดาห์นี้ / M=เดือนนี้ / รวม=ทั้งหมด", size: "xxs", color: "#aaaaaa" }
         ]
       }
     };
@@ -625,7 +625,7 @@ async function sendComparisonReport(event, idsStr, dateStr, pool, client) {
 function createRedeemNote(data) {
   return {
     type: "text",
-    text: `(แลกแต้ม  ว: ${data.day.toLocaleString()} / ส: ${data.week.toLocaleString()} / ด: ${data.month.toLocaleString()} / รวม: ${data.all.toLocaleString()})`,
+    text: `(แลกแต้ม  D= ${data.day.toLocaleString()} / W= ${data.week.toLocaleString()} / M= ${data.month.toLocaleString()} / รวม= ${data.all.toLocaleString()})`,
     size: "xxs", color: "#9C27B0", wrap: true, margin: "xs"
   };
 }
@@ -638,10 +638,10 @@ function createSummaryRow(label, data) {
       {
         type: "box", layout: "horizontal",
         contents: [
-          { type: "text", text: `ว: ${data.day.toLocaleString()}`, size: "xxs", color: "#1DB446", flex: 2 },
-          { type: "text", text: `ส: ${data.week.toLocaleString()}`, size: "xxs", color: "#FF9900", flex: 2 },
-          { type: "text", text: `ด: ${data.month.toLocaleString()}`, size: "xxs", color: "#0099FF", flex: 2 },
-          { type: "text", text: `รวม: ${data.all.toLocaleString()}`, size: "xxs", color: "#000000", weight: "bold", align: "end", flex: 3 }
+          { type: "text", text: `D= ${data.day.toLocaleString()}`, size: "xxs", color: "#1DB446", flex: 2 },
+          { type: "text", text: `W= ${data.week.toLocaleString()}`, size: "xxs", color: "#FF9900", flex: 2 },
+          { type: "text", text: `M= ${data.month.toLocaleString()}`, size: "xxs", color: "#0099FF", flex: 2 },
+          { type: "text", text: `รวม= ${data.all.toLocaleString()}`, size: "xxs", color: "#000000", weight: "bold", align: "end", flex: 3 }
         ]
       }
     ]
