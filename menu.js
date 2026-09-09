@@ -527,70 +527,6 @@ async function sendMonthlyYearView(event, branchId, branchName, ce_year, pool, c
   } catch (err) { console.error('[sendMonthlyYearView]', err); }
 }
 
-// --- 4. รายงานเปรียบเทียบเครื่อง (Multiselect + Pink Theme) ---
-async function handleMachineReportLogic(event, pool, client) {
-  const res = await pool.query(
-    `SELECT m.branch_id, b.branch_name 
-     FROM owner_branch_mapping m 
-     JOIN branches b ON m.branch_id = b.id 
-     WHERE m.owner_line_id = $1`, 
-    [event.source.userId]
-  );
-  const mapping = res.rows || [];
-  
-  if (mapping.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลสาขาค่ะ' });
-
-  const bubble = {
-    type: "bubble",
-    header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [{ type: "text", text: "🏩 เลือกสาขา (เปรียบเทียบ)", color: "#ffffff", weight: "bold", size: "lg" }] },
-    body: {
-      type: "box", layout: "vertical", spacing: "sm",
-      contents: mapping.map(m => ({
-        type: "button", style: "secondary", height: "sm",
-        action: { type: "postback", label: m.branch_name, data: `SELECT_MACHINE_BRANCH:${m.branch_id}|${m.branch_name}` }
-      }))
-    }
-  };
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกสาขา", contents: bubble });
-}
-
-async function sendMultiMachineSelector(event, branchId, branchName, selectedIds, pool, client) {
-  const res = await pool.query('SELECT DISTINCT machine_id FROM hourly_summary WHERE branch_id = $1 ORDER BY machine_id', [branchId]);
-  const uniqueMachines = (res.rows || []).map(r => r.machine_id);
-
-  if (uniqueMachines.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: `ไม่พบเครื่องในสาขา ${branchName} ค่ะ` });
-
-  const currentListStr = selectedIds.join(',');
-  const machineRows = uniqueMachines.map(mId => {
-    const isSelected = selectedIds.includes(mId);
-    const shortLabel = mId.substring(mId.lastIndexOf('_') + 1);
-    return {
-      type: "box", layout: "vertical", margin: "md", spacing: "xs",
-      contents: [
-        { type: "text", text: `เครื่อง ${shortLabel}`, size: "sm", color: isSelected ? "#000000" : "#555555", weight: isSelected ? "bold" : "regular" },
-        { type: "button", style: "secondary", height: "sm", action: { type: "postback", label: isSelected ? "✅ เลือกแล้ว" : "⬜ เลือกเปรียบเทียบ", data: `TOGGLE_MACHINE:${branchId}|${branchName}|${mId}|${currentListStr}` } },
-        {
-          type: "box", layout: "horizontal", spacing: "sm",
-          contents: [
-            { type: "button", style: "secondary", height: "sm", flex: 1, color: "#FF9500", action: { type: "postback", label: "🧹 ล้างยอด", data: `CONFIRM_CLEAR_MACHINE:${branchId}|${branchName}|${mId}` } },
-            { type: "button", style: "secondary", height: "sm", flex: 1, color: "#FF3B30", action: { type: "postback", label: "🗑 ลบเครื่อง", data: `CONFIRM_DELETE_MACHINE:${branchId}|${branchName}|${mId}` } }
-          ]
-        },
-        { type: "separator", margin: "sm" }
-      ]
-    };
-  });
-
-  const chunks = chunkArray(machineRows, 5);
-  const bubbles = chunks.map(chunk => ({
-    type: "bubble",
-    header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [{ type: "text", text: `🔢 เลือกเครื่องเทียบ (${branchName})`, color: "#ffffff", weight: "bold" }, { type: "text", text: `เลือกแล้ว: ${selectedIds.length} เครื่อง`, color: "#ffffff", size: "xs" }] },
-    body: { type: "box", layout: "vertical", contents: chunk },
-    footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#000000", margin: "sm", action: { type: "postback", label: selectedIds.length > 0 ? `🚀 เทียบยอด (${selectedIds.length})` : "กรุณาเลือกเครื่อง", data: selectedIds.length > 0 ? `CONFIRM_COMPARE:${currentListStr}` : "NOOP_NO_SELECTION" } }] }
-  }));
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกเครื่อง", contents: { type: "carousel", contents: bubbles } });
-}
-
 // --- ลบเครื่อง / ลบข้อมูลเหรียญ-แบงค์-QR ทั้งหมดของเครื่อง ---
 // หมายเหตุ: ระบบไม่มีตาราง "เครื่อง" แยกต่างหาก รายชื่อเครื่องถูกดึงมาจาก machine_id ที่มีอยู่ใน hourly_summary
 // ดังนั้น "ลบเครื่อง" กับ "ลบข้อมูลทั้งหมดของเครื่อง" คือการลบแถวเดียวกัน ถ้ามีข้อมูลชื่อเครื่องเดิมส่งเข้ามาใหม่ เครื่องจะกลับมาแสดงเองอัตโนมัติ
@@ -609,7 +545,7 @@ async function sendDeleteMachineConfirm(event, branchId, branchName, machineId, 
       type: "box", layout: "vertical", spacing: "sm",
       contents: [
         { type: "button", style: "primary", color: "#FF3B30", action: { type: "postback", label: "✅ ยืนยันลบ", data: `DO_DELETE_MACHINE:${branchId}|${branchName}|${machineId}` } },
-        { type: "button", style: "secondary", action: { type: "postback", label: "❌ ยกเลิก", data: `SELECT_MACHINE_BRANCH:${branchId}|${branchName}` } }
+        { type: "button", style: "secondary", action: { type: "postback", label: "❌ ยกเลิก", data: `VIEW_REPORT_ID:${branchId}|${branchName}` } }
       ]
     }
   };
@@ -644,7 +580,7 @@ async function sendClearMachineConfirm(event, branchId, branchName, machineId, c
       type: "box", layout: "vertical", spacing: "sm",
       contents: [
         { type: "button", style: "primary", color: "#FF9500", action: { type: "postback", label: "✅ ยืนยันล้างยอด", data: `DO_CLEAR_MACHINE:${branchId}|${branchName}|${machineId}` } },
-        { type: "button", style: "secondary", action: { type: "postback", label: "❌ ยกเลิก", data: `SELECT_MACHINE_BRANCH:${branchId}|${branchName}` } }
+        { type: "button", style: "secondary", action: { type: "postback", label: "❌ ยกเลิก", data: `VIEW_REPORT_ID:${branchId}|${branchName}` } }
       ]
     }
   };
@@ -660,78 +596,6 @@ async function clearMachineData(event, branchId, branchName, machineId, pool, cl
   } catch (err) {
     console.error("Clear Machine Error:", err);
     return client.replyMessage(event.replyToken, { type: 'text', text: 'เกิดข้อผิดพลาดในการล้างยอดค่ะบอส!' });
-  }
-}
-
-async function sendComparisonReport(event, idsStr, dateStr, pool, client) {
-  try {
-    const machineIds = idsStr.split(','); // แปลง "m1,m2" เป็น ["m1", "m2"]
-    
-    console.log(`[Compare] Date: ${dateStr}, IDs: ${idsStr}`);
-
-    const res = await pool.query(
-      `SELECT machine_id, SUM(coin + bank + qr) as total
-       FROM hourly_summary
-       WHERE machine_id = ANY($1)
-       AND DATE(period_start AT TIME ZONE 'Asia/Bangkok') = $2::date
-       GROUP BY machine_id`,
-      [machineIds, dateStr]
-    );
-    
-    const stats = res.rows || [];
-    const summary = {};
-    
-    // ตั้งค่าเริ่มต้นให้ทุกเครื่องเป็น 0 (เผื่อเครื่องไหนไม่มีค่ายอดขายในวันนั้น)
-    machineIds.forEach(id => summary[id] = 0);
-    stats.forEach(t => summary[t.machine_id] = parseInt(t.total));
-    
-    const niceDate = new Date(dateStr).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
-    
-    // สร้างแถวข้อมูลเครื่อง
-    const rows = machineIds.map(id => ({
-      type: "box", layout: "horizontal", margin: "sm",
-      contents: [
-        { type: "text", text: `เครื่อง ${id}`, size: "sm", color: "#555555", flex: 6 },
-        { type: "text", text: `฿${(summary[id] || 0).toLocaleString()}`, size: "sm", color: "#000000", weight: "bold", align: "end", flex: 4 }
-      ]
-    }));
-
-    const grandTotal = Object.values(summary).reduce((a, b) => a + b, 0);
-
-    const bubble = {
-      type: "bubble",
-      header: { 
-        type: "box", layout: "vertical", backgroundColor: "#333333", 
-        contents: [
-          { type: "text", text: `📊 เปรียบเทียบยอดขาย`, color: "#ffffff", weight: "bold" },
-          { type: "text", text: `วันที่: ${niceDate}`, color: "#ffffff", size: "sm" }
-        ] 
-      },
-      body: { 
-        type: "box", layout: "vertical", spacing: "sm", 
-        contents: [
-          ...rows, 
-          { type: "separator", margin: "md" }, 
-          { 
-            type: "box", layout: "horizontal", margin: "md", 
-            contents: [
-              { type: "text", text: "รวมทั้งหมด", weight: "bold", color: "#FF1493" },
-              { type: "text", text: `฿${grandTotal.toLocaleString()}`, weight: "bold", align: "end", color: "#FF1493" }
-            ] 
-          }
-        ] 
-      },
-      footer: { 
-        type: "box", layout: "vertical", 
-        contents: [{ type: "button", style: "link", action: { type: "postback", label: "🔙 เลือกวันอื่น", data: `CONFIRM_COMPARE:${idsStr}` } }]
-      }
-    };
-
-    return client.replyMessage(event.replyToken, { type: "flex", altText: "รายงานเปรียบเทียบ", contents: bubble });
-
-  } catch (err) {
-    console.error("Comparison Report Error:", err);
-    return client.replyMessage(event.replyToken, { type: 'text', text: 'เกิดข้อผิดพลาดในการคำนวณยอดเปรียบเทียบค่ะบอส!' });
   }
 }
 
@@ -870,28 +734,6 @@ function createSummaryRow(label, data) {
   };
 }
 
-// --- 4.3 เลือกวันที่ (เพิ่มกลับเข้าไปให้บอทหาย Error ค่ะ) ---
-async function sendDateSelector(event, idsStr, client) {
-  if (!idsStr) return;
-  const today = new Date().toISOString().split('T')[0];
-  const yesterday = new Date(new Date().setDate(new Date().getDate() - 1)).toISOString().split('T')[0];
-
-  const bubble = {
-    type: "bubble",
-    header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [{ type: "text", text: `📅 เลือกวันที่ดูรายงาน`, color: "#ffffff", weight: "bold" }] },
-    body: {
-      type: "box", layout: "vertical", spacing: "md",
-      contents: [
-        { type: "button", style: "primary", color: "#FF1493", action: { type: "postback", label: "วันนี้", data: `VIEW_COMPARE_REPORT:${idsStr}|${today}` } },
-        { type: "button", style: "secondary", action: { type: "postback", label: "เมื่อวาน", data: `VIEW_COMPARE_REPORT:${idsStr}|${yesterday}` } },
-        { type: "separator" },
-        { type: "button", style: "secondary", action: { type: "datetimepicker", label: "เลือกวันที่เอง 🗓️", data: `MACHINE_DATE_SELECT|${idsStr}`, mode: "date" } }
-      ]
-    }
-  };
-  return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกวันที่", contents: bubble });
-}
-
 function chunkArray(arr, s) { const res = []; for (let i = 0; i < arr.length; i += s) res.push(arr.slice(i, i + s)); return res; }
 
 module.exports = {
@@ -903,14 +745,10 @@ module.exports = {
   sendMonthlyYearMenu,
   sendMonthlyYearView,
   handleBranchReportLogic,
-  handleMachineReportLogic,
-  sendMultiMachineSelector,
   sendDeleteMachineConfirm,
   deleteMachineData,
   sendClearMachineConfirm,
   clearMachineData,
-  sendComparisonReport,
-  sendDateSelector,
   getPointReportMenu,
   handlePointReportLogic,
   sendPointReport,
