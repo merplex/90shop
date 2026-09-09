@@ -630,14 +630,19 @@ async function handleEventInner(event) {
       return clearMachineData(event, branchId, branchName, machineId, pool, client);
     }
 
-    return null;
+    // ปุ่มในการ์ดรายงาน/เมนู ส่งเป็น postback (ไม่มี displayText) เพื่อไม่ให้ข้อความคำสั่งโผล่รกในแชท
+    // ส่งต่อให้ handleCommand ตัวเดียวกับที่รับข้อความพิมพ์/กดจาก rich menu
+    return handleCommand(event, data);
   }
 
   if (event.type !== 'message' || event.message.type !== 'text') return null;
-  
+
   const userText = event.message.text.trim();
   console.log(`[Log] Incoming: "${userText}"`);
+  return handleCommand(event, userText);
+}
 
+async function handleCommand(event, userText) {
   if (userText === 'dbcheck') {
     const [br, mp] = await Promise.all([
       pool.query('SELECT id, branch_name FROM branches ORDER BY id'),

@@ -53,10 +53,10 @@ function getReportSelectionMenu() {
     body: {
       type: "box", layout: "vertical", spacing: "sm",
       contents: [
-        { type: "button", style: "primary", color: "#00b900", action: { type: "message", label: "รายงานต่อสาขา", text: "REPORT_BRANCH_SELECT" } },
-        { type: "button", style: "secondary", action: { type: "message", label: "รายงานรวมรายเดือน", text: "REPORT_MONTHLY_TOTAL" } },
-        { type: "button", style: "secondary", action: { type: "message", label: "รายงานต่อเครื่อง", text: "REPORT_MACHINE_SELECT" } },
-        { type: "button", style: "primary", color: "#9C27B0", action: { type: "message", label: "รายงานแต้มสะสม", text: "POINT_REPORT_MENU" } },
+        { type: "button", style: "primary", color: "#00b900", action: { type: "postback", label: "รายงานต่อสาขา", data: "REPORT_BRANCH_SELECT" } },
+        { type: "button", style: "secondary", action: { type: "postback", label: "รายงานรวมรายเดือน", data: "REPORT_MONTHLY_TOTAL" } },
+        { type: "button", style: "secondary", action: { type: "postback", label: "รายงานต่อเครื่อง", data: "REPORT_MACHINE_SELECT" } },
+        { type: "button", style: "primary", color: "#9C27B0", action: { type: "postback", label: "รายงานแต้มสะสม", data: "POINT_REPORT_MENU" } },
         { type: "button", style: "primary", color: "#FFB74D", action: { type: "uri", label: "จัดการยอดเงิน", uri: "https://liff.line.me/2009523613-hLnRGrZC?mode=balance" } }
       ]
     }
@@ -95,7 +95,7 @@ function getBranchSelectMenu(mapping) {
         { type: "text", text: "เลือกสาขาที่ต้องการดู", weight: "bold", size: "lg" },
         ...mapping.map(m => ({
           type: "button", style: "secondary", height: "sm",
-          action: { type: "message", label: m.branch_name, text: `VIEW_REPORT_ID:${m.branch_id}|${m.branch_name}` }
+          action: { type: "postback", label: m.branch_name, data: `VIEW_REPORT_ID:${m.branch_id}|${m.branch_name}` }
         }))
       ]
     }
@@ -234,8 +234,8 @@ function getPointReportMenu() {
     body: {
       type: "box", layout: "vertical", spacing: "sm",
       contents: [
-        { type: "button", style: "primary", color: "#1DB446", action: { type: "message", label: "🌟 การสะสมแต้ม", text: "POINT_REPORT_SELECT:earn" } },
-        { type: "button", style: "primary", color: "#FF7043", action: { type: "message", label: "🎫 การใช้แต้ม", text: "POINT_REPORT_SELECT:redeem" } }
+        { type: "button", style: "primary", color: "#1DB446", action: { type: "postback", label: "🌟 การสะสมแต้ม", data: "POINT_REPORT_SELECT:earn" } },
+        { type: "button", style: "primary", color: "#FF7043", action: { type: "postback", label: "🎫 การใช้แต้ม", data: "POINT_REPORT_SELECT:redeem" } }
       ]
     }
   };
@@ -272,7 +272,7 @@ function getPointBranchSelectMenu(mapping, type) {
         { type: "text", text: "เลือกสาขาที่ต้องการดู", weight: "bold", size: "lg" },
         ...mapping.map(m => ({
           type: "button", style: "secondary", height: "sm",
-          action: { type: "message", label: m.branch_name, text: `VIEW_POINT_REPORT:${type}|${m.branch_id}|${m.branch_name}` }
+          action: { type: "postback", label: m.branch_name, data: `VIEW_POINT_REPORT:${type}|${m.branch_id}|${m.branch_name}` }
         }))
       ]
     }
@@ -417,7 +417,7 @@ function buildBranchMonthlyBubble(branchId, branchName, ce_year, availableYears,
   // ปุ่ม/ป้ายปีทางขวาของแถบเขียว — กดได้เมื่อมีข้อมูลมากกว่า 1 ปี
   const yearTag = availableYears.length > 1
     ? { type: "box", layout: "vertical", backgroundColor: "#ffffff", cornerRadius: "md", paddingAll: "xs", flex: 0,
-        action: { type: "message", label: "เลือกปี", text: `MONTHLY_YEAR_MENU:${branchId}|${branchName}` },
+        action: { type: "postback", label: "เลือกปี", data: `MONTHLY_YEAR_MENU:${branchId}|${branchName}` },
         contents: [{ type: "text", text: `${ce_year + 543} ▾`, size: "xs", weight: "bold", color: "#00b900", align: "center" }] }
     : { type: "text", text: `${ce_year + 543}`, size: "xs", weight: "bold", color: "#ffffff", align: "end", flex: 0, gravity: "center" };
 
@@ -498,7 +498,7 @@ async function sendMonthlyYearMenu(event, branchId, branchName, pool, client) {
           type: "box", layout: "vertical", spacing: "sm",
           contents: years.map(y => ({
             type: "button", style: "secondary", height: "sm",
-            action: { type: "message", label: `ปี ${y + 543}`, text: `MONTHLY_YEAR_VIEW:${branchId}|${branchName}|${y}` }
+            action: { type: "postback", label: `ปี ${y + 543}`, data: `MONTHLY_YEAR_VIEW:${branchId}|${branchName}|${y}` }
           }))
         }
       }
@@ -537,7 +537,7 @@ async function handleMachineReportLogic(event, pool, client) {
       type: "box", layout: "vertical", spacing: "sm",
       contents: mapping.map(m => ({
         type: "button", style: "secondary", height: "sm",
-        action: { type: "message", label: m.branch_name, text: `SELECT_MACHINE_BRANCH:${m.branch_id}|${m.branch_name}` }
+        action: { type: "postback", label: m.branch_name, data: `SELECT_MACHINE_BRANCH:${m.branch_id}|${m.branch_name}` }
       }))
     }
   };
@@ -576,7 +576,7 @@ async function sendMultiMachineSelector(event, branchId, branchName, selectedIds
     type: "bubble",
     header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [{ type: "text", text: `🔢 เลือกเครื่องเทียบ (${branchName})`, color: "#ffffff", weight: "bold" }, { type: "text", text: `เลือกแล้ว: ${selectedIds.length} เครื่อง`, color: "#ffffff", size: "xs" }] },
     body: { type: "box", layout: "vertical", contents: chunk },
-    footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#000000", margin: "sm", action: { type: "message", label: selectedIds.length > 0 ? `🚀 เทียบยอด (${selectedIds.length})` : "กรุณาเลือกเครื่อง", text: selectedIds.length > 0 ? `CONFIRM_COMPARE:${currentListStr}` : "ยังไม่ได้เลือกเครื่อง" } }] }
+    footer: { type: "box", layout: "vertical", contents: [{ type: "button", style: "primary", color: "#000000", margin: "sm", action: { type: "postback", label: selectedIds.length > 0 ? `🚀 เทียบยอด (${selectedIds.length})` : "กรุณาเลือกเครื่อง", data: selectedIds.length > 0 ? `CONFIRM_COMPARE:${currentListStr}` : "NOOP_NO_SELECTION" } }] }
   }));
   return client.replyMessage(event.replyToken, { type: "flex", altText: "เลือกเครื่อง", contents: { type: "carousel", contents: bubbles } });
 }
@@ -599,7 +599,7 @@ async function sendDeleteMachineConfirm(event, branchId, branchName, machineId, 
       type: "box", layout: "vertical", spacing: "sm",
       contents: [
         { type: "button", style: "primary", color: "#FF3B30", action: { type: "postback", label: "✅ ยืนยันลบ", data: `DO_DELETE_MACHINE:${branchId}|${branchName}|${machineId}` } },
-        { type: "button", style: "secondary", action: { type: "message", label: "❌ ยกเลิก", text: `SELECT_MACHINE_BRANCH:${branchId}|${branchName}` } }
+        { type: "button", style: "secondary", action: { type: "postback", label: "❌ ยกเลิก", data: `SELECT_MACHINE_BRANCH:${branchId}|${branchName}` } }
       ]
     }
   };
@@ -634,7 +634,7 @@ async function sendClearMachineConfirm(event, branchId, branchName, machineId, c
       type: "box", layout: "vertical", spacing: "sm",
       contents: [
         { type: "button", style: "primary", color: "#FF9500", action: { type: "postback", label: "✅ ยืนยันล้างยอด", data: `DO_CLEAR_MACHINE:${branchId}|${branchName}|${machineId}` } },
-        { type: "button", style: "secondary", action: { type: "message", label: "❌ ยกเลิก", text: `SELECT_MACHINE_BRANCH:${branchId}|${branchName}` } }
+        { type: "button", style: "secondary", action: { type: "postback", label: "❌ ยกเลิก", data: `SELECT_MACHINE_BRANCH:${branchId}|${branchName}` } }
       ]
     }
   };
@@ -713,7 +713,7 @@ async function sendComparisonReport(event, idsStr, dateStr, pool, client) {
       },
       footer: { 
         type: "box", layout: "vertical", 
-        contents: [{ type: "button", style: "link", action: { type: "message", label: "🔙 เลือกวันอื่น", text: `CONFIRM_COMPARE:${idsStr}` } }] 
+        contents: [{ type: "button", style: "link", action: { type: "postback", label: "🔙 เลือกวันอื่น", data: `CONFIRM_COMPARE:${idsStr}` } }]
       }
     };
 
@@ -766,8 +766,8 @@ async function sendDateSelector(event, idsStr, client) {
     body: {
       type: "box", layout: "vertical", spacing: "md",
       contents: [
-        { type: "button", style: "primary", color: "#FF1493", action: { type: "message", label: "วันนี้", text: `VIEW_COMPARE_REPORT:${idsStr}|${today}` } },
-        { type: "button", style: "secondary", action: { type: "message", label: "เมื่อวาน", text: `VIEW_COMPARE_REPORT:${idsStr}|${yesterday}` } },
+        { type: "button", style: "primary", color: "#FF1493", action: { type: "postback", label: "วันนี้", data: `VIEW_COMPARE_REPORT:${idsStr}|${today}` } },
+        { type: "button", style: "secondary", action: { type: "postback", label: "เมื่อวาน", data: `VIEW_COMPARE_REPORT:${idsStr}|${yesterday}` } },
         { type: "separator" },
         { type: "button", style: "secondary", action: { type: "datetimepicker", label: "เลือกวันที่เอง 🗓️", data: `MACHINE_DATE_SELECT|${idsStr}`, mode: "date" } }
       ]
