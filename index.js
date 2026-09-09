@@ -18,6 +18,8 @@ const {
   getPointReportMenu,
   handlePointReportLogic,
   sendPointReport,
+  sendMonthlyYearMenu,
+  sendMonthlyYearView,
   ALPHABET_GROUPS,
   chunkArray
 } = require('./menu');
@@ -673,6 +675,14 @@ async function handleEventInner(event) {
   }
   if (userText === 'REPORT_MONTHLY_TOTAL') {
     return sendMonthlyTotalReport(event, pool, client);
+  }
+  if (userText.startsWith('MONTHLY_YEAR_MENU:')) {
+    const [branchId, branchName] = userText.slice('MONTHLY_YEAR_MENU:'.length).split('|');
+    return sendMonthlyYearMenu(event, branchId, branchName, pool, client);
+  }
+  if (userText.startsWith('MONTHLY_YEAR_VIEW:')) {
+    const [branchId, branchName, year] = userText.slice('MONTHLY_YEAR_VIEW:'.length).split('|');
+    return sendMonthlyYearView(event, branchId, branchName, year, pool, client);
   }
   if (userText.startsWith('VIEW_REPORT_ID:')) {
     const rawData = userText.replace('VIEW_REPORT_ID:', ''); 

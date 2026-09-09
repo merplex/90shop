@@ -358,57 +358,163 @@ async function sendPointReport(event, type, branchId, branchName, pool, client) 
   }
 }
 
-// --- 3. รายงานรายเดือน (SQL Version) ---
+// --- 3. รายงานรายเดือน (แยกตามปี + บรรทัดใช้แต้ม) ---
+const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+// ดึงยอดเงินราย ด. (coin+bank+qr ล้วน ๆ) และแต้มที่ใช้ราย ด. ของทุกสาขาที่ owner คนนี้ถือ
+async function fetchMonthlyData(pool, ownerLineId) {
+  const money = await pool.query(
+    `SELECT h.branch_id, b.branch_name,
+       EXTRACT(YEAR  FROM h.period_start AT TIME ZONE 'Asia/Bangkok')::int  AS year,
+       EXTRACT(MONTH FROM h.period_start AT TIME ZONE 'Asia/Bangkok')::int  AS month,
+       SUM(h.coin + h.bank + h.qr)::bigint AS amount
+     FROM hourly_summary h
+     JOIN branches b ON h.branch_id = b.id
+     JOIN owner_branch_mapping m ON m.branch_id = h.branch_id
+     WHERE m.owner_line_id = $1
+     GROUP BY h.branch_id, b.branch_name, year, month`,
+    [ownerLineId]
+  );
+  const redeem = await pool.query(
+    `SELECT pe.branch_id, b.branch_name,
+       EXTRACT(YEAR  FROM pe.created_at AT TIME ZONE 'Asia/Bangkok')::int  AS year,
+       EXTRACT(MONTH FROM pe.created_at AT TIME ZONE 'Asia/Bangkok')::int  AS month,
+       SUM(pe.points)::bigint AS pts
+     FROM point_events pe
+     JOIN branches b ON b.id = pe.branch_id
+     JOIN owner_branch_mapping m ON m.branch_id = pe.branch_id
+     WHERE m.owner_line_id = $1 AND pe.type = 'redeem'
+     GROUP BY pe.branch_id, b.branch_name, year, month`,
+    [ownerLineId]
+  );
+  return { money: money.rows || [], redeem: redeem.rows || [] };
+}
+
+// สร้าง bubble รายเดือนของ 1 สาขา สำหรับปี ค.ศ. ที่เลือก
+function buildBranchMonthlyBubble(branchId, branchName, ce_year, availableYears, money, redeem) {
+  const bkkNow = new Date(Date.now() + 7 * 3600 * 1000);
+  const curY = bkkNow.getUTCFullYear(), curM = bkkNow.getUTCMonth() + 1;
+  const lastMonth = ce_year >= curY ? curM : 12;
+
+  const moneyOf = (m) => { const r = money.find(x => x.branch_id === branchId && x.year === ce_year && x.month === m); return r ? Number(r.amount) : 0; };
+  const ptsOf   = (m) => { const r = redeem.find(x => x.branch_id === branchId && x.year === ce_year && x.month === m); return r ? Number(r.pts) : 0; };
+
+  let totalMoney = 0, totalPts = 0;
+  const rows = [];
+  for (let m = 1; m <= lastMonth; m++) {
+    const amt = moneyOf(m), pts = ptsOf(m);
+    totalMoney += amt; totalPts += pts;
+    const label = `${TH_MONTHS[m - 1]}(${ce_year + 543})` + (pts > 0 ? ` #ใช้แต้ม ${pts.toLocaleString()}` : '');
+    rows.push({
+      type: "box", layout: "horizontal", contents: [
+        { type: "text", text: label, size: "sm", color: "#888888", flex: 5, wrap: true },
+        { type: "text", text: `฿${amt.toLocaleString()}`, align: "end", size: "sm", flex: 3,
+          weight: amt > 0 ? "bold" : "regular", color: amt > 0 ? "#000000" : "#cccccc" }
+      ]
+    });
+  }
+
+  // ปุ่ม/ป้ายปีทางขวาของแถบเขียว — กดได้เมื่อมีข้อมูลมากกว่า 1 ปี
+  const yearTag = availableYears.length > 1
+    ? { type: "box", layout: "vertical", backgroundColor: "#ffffff", cornerRadius: "md", paddingAll: "xs", flex: 0,
+        action: { type: "message", label: "เลือกปี", text: `MONTHLY_YEAR_MENU:${branchId}|${branchName}` },
+        contents: [{ type: "text", text: `${ce_year + 543} ▾`, size: "xs", weight: "bold", color: "#00b900", align: "center" }] }
+    : { type: "text", text: `${ce_year + 543}`, size: "xs", weight: "bold", color: "#ffffff", align: "end", flex: 0, gravity: "center" };
+
+  return {
+    type: "bubble",
+    header: {
+      type: "box", layout: "horizontal", backgroundColor: "#00b900", spacing: "sm",
+      contents: [
+        { type: "text", text: `📍 สาขา: ${branchName}`, color: "#ffffff", weight: "bold", flex: 1, gravity: "center", wrap: true },
+        yearTag
+      ]
+    },
+    body: {
+      type: "box", layout: "vertical", spacing: "sm",
+      contents: [
+        { type: "text", text: `สรุปยอดรายเดือน ปี ${ce_year + 543}`, size: "xs", weight: "bold", color: "#aaaaaa" },
+        { type: "separator", margin: "sm" },
+        ...rows,
+        { type: "separator", margin: "md" },
+        { type: "box", layout: "horizontal", margin: "md", contents: [
+          { type: "text", text: "รวมยอดทั้งปี", weight: "bold", size: "sm" },
+          { type: "text", text: `฿${totalMoney.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }
+        ] },
+        ...(totalPts > 0 ? [{ type: "box", layout: "horizontal", contents: [
+          { type: "text", text: "ใช้แต้มทั้งปี", size: "xs", color: "#9C27B0" },
+          { type: "text", text: `${totalPts.toLocaleString()} แต้ม`, align: "end", size: "xs", color: "#9C27B0" }
+        ] }] : []),
+        { type: "text", text: "* ยอด ฿ เป็นเงินล้วน ไม่รวมส่วนที่จ่ายด้วยแต้ม", size: "xxs", color: "#aaaaaa", margin: "sm", wrap: true }
+      ]
+    }
+  };
+}
+
+// ปีที่มีข้อมูล (เงินหรือแต้ม) ของสาขานั้น เรียงใหม่→เก่า
+function yearsForBranch(branchId, money, redeem) {
+  const ys = new Set();
+  money.forEach(r => { if (r.branch_id === branchId) ys.add(r.year); });
+  redeem.forEach(r => { if (r.branch_id === branchId) ys.add(r.year); });
+  return [...ys].sort((a, b) => b - a);
+}
+
 async function sendYearlySummaryReport(event, pool, client) {
   try {
-    const res = await pool.query(
-      `SELECT
-         h.branch_id,
-         b.branch_name,
-         EXTRACT(YEAR  FROM h.period_start AT TIME ZONE 'Asia/Bangkok') as year,
-         EXTRACT(MONTH FROM h.period_start AT TIME ZONE 'Asia/Bangkok') as month,
-         SUM(h.coin + h.bank + h.qr) as total_amount
-       FROM hourly_summary h
-       JOIN branches b ON h.branch_id = b.id
-       JOIN owner_branch_mapping m ON m.branch_id = h.branch_id
-       WHERE m.owner_line_id = $1
-       GROUP BY h.branch_id, b.branch_name, year, month
-       ORDER BY h.branch_id, year, month`,
-      [event.source.userId]
-    );
-    const stats = res.rows || [];
+    const { money, redeem } = await fetchMonthlyData(pool, event.source.userId);
+    if (money.length === 0 && redeem.length === 0) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลธุรกรรมค่ะ' });
+    }
 
-    if (stats.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลธุรกรรมค่ะ' });
+    const branches = [];
+    const seen = new Set();
+    [...money, ...redeem].forEach(r => { if (!seen.has(r.branch_id)) { seen.add(r.branch_id); branches.push({ id: r.branch_id, name: r.branch_name }); } });
 
-    const branchMap = {};
-    stats.forEach(item => {
-      if (!branchMap[item.branch_id]) branchMap[item.branch_id] = { name: item.branch_name, data: [] };
-      branchMap[item.branch_id].data.push(item);
+    const bubbles = branches.map(br => {
+      const years = yearsForBranch(br.id, money, redeem);
+      const showYear = years[0] || new Date().getFullYear();
+      return buildBranchMonthlyBubble(br.id, br.name, showYear, years, money, redeem);
     });
 
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const lastYear = currentYear - 1;
+    return client.replyMessage(event.replyToken, {
+      type: "flex", altText: "รายงานรายเดือน",
+      contents: { type: "carousel", contents: bubbles.slice(0, 10) }
+    });
+  } catch (err) { console.error('[sendYearlySummaryReport]', err); }
+}
 
-    const branchBubbles = Object.keys(branchMap).map(bId => {
-      const branch = branchMap[bId];
-      let totalAll = 0;
-      const monthlyRows = [];
-      for (let mIdx = 0; mIdx <= 11; mIdx++) {
-        const targetYear = (mIdx <= now.getMonth()) ? currentYear : lastYear;
-        const match = branch.data.find(d => parseInt(d.month) === (mIdx + 1) && parseInt(d.year) === targetYear);
-        const amount = match ? parseInt(match.total_amount) : 0;
-        if (amount > 0 || mIdx <= now.getMonth() || targetYear === lastYear) {
-           totalAll += amount;
-           const textColor = amount > 0 ? "#000000" : "#cccccc";
-           const textWeight = amount > 0 ? "bold" : "regular";
-           monthlyRows.push({ type: "box", layout: "horizontal", contents: [{ type: "text", text: new Date(0, mIdx).toLocaleString('th-TH', { month: 'short' }) + ` (${targetYear + 543})`, size: "sm", color: "#888888" }, { type: "text", text: `฿${amount.toLocaleString()}`, align: "end", size: "sm", weight: textWeight, color: textColor }] });
+// กดป้ายปี → เมนูเลือกปีของสาขานั้น (เฉพาะปีที่มีข้อมูล)
+async function sendMonthlyYearMenu(event, branchId, branchName, pool, client) {
+  try {
+    const { money, redeem } = await fetchMonthlyData(pool, event.source.userId);
+    const years = yearsForBranch(branchId, money, redeem);
+    if (years.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลของสาขานี้ค่ะ' });
+    return client.replyMessage(event.replyToken, {
+      type: "flex", altText: "เลือกปี",
+      contents: {
+        type: "bubble",
+        header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `เลือกปี — ${branchName}`, color: "#ffffff", weight: "bold" }] },
+        body: {
+          type: "box", layout: "vertical", spacing: "sm",
+          contents: years.map(y => ({
+            type: "button", style: "secondary", height: "sm",
+            action: { type: "message", label: `ปี ${y + 543}`, text: `MONTHLY_YEAR_VIEW:${branchId}|${branchName}|${y}` }
+          }))
         }
       }
-      return { type: "bubble", header: { type: "box", layout: "vertical", backgroundColor: "#00b900", contents: [{ type: "text", text: `📍 สาขา: ${branch.name}`, color: "#ffffff", weight: "bold" }] }, body: { type: "box", layout: "vertical", spacing: "sm", contents: [{ type: "text", text: "สรุปยอดรายเดือน", size: "xs", weight: "bold", color: "#aaaaaa" }, { type: "separator", margin: "sm" }, ...monthlyRows, { type: "separator", margin: "md" }, { type: "box", layout: "horizontal", margin: "md", contents: [{ type: "text", text: "รวมยอดทั้งปี", weight: "bold", size: "sm" }, { type: "text", text: `฿${totalAll.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }] }] } };
     });
-    return client.replyMessage(event.replyToken, { type: "flex", altText: "รายงานรายปี", contents: { type: "carousel", contents: branchBubbles.slice(0, 10) } });
-  } catch (err) { console.error(err); }
+  } catch (err) { console.error('[sendMonthlyYearMenu]', err); }
+}
+
+// เลือกปีแล้ว → แสดง bubble รายเดือนของสาขานั้นสำหรับปีที่เลือก
+async function sendMonthlyYearView(event, branchId, branchName, ce_year, pool, client) {
+  try {
+    const { money, redeem } = await fetchMonthlyData(pool, event.source.userId);
+    const years = yearsForBranch(branchId, money, redeem);
+    if (years.length === 0) return client.replyMessage(event.replyToken, { type: 'text', text: 'ไม่พบข้อมูลของสาขานี้ค่ะ' });
+    const bubble = buildBranchMonthlyBubble(branchId, branchName, parseInt(ce_year), years, money, redeem);
+    return client.replyMessage(event.replyToken, { type: "flex", altText: `รายเดือน ปี ${parseInt(ce_year) + 543}`, contents: bubble });
+  } catch (err) { console.error('[sendMonthlyYearView]', err); }
 }
 
 // --- 4. รายงานเปรียบเทียบเครื่อง (Multiselect + Pink Theme) ---
@@ -678,6 +784,8 @@ module.exports = {
   getBranchSelectMenu,
   sendBranchReport,
   sendMonthlyTotalReport: sendYearlySummaryReport,
+  sendMonthlyYearMenu,
+  sendMonthlyYearView,
   handleBranchReportLogic,
   handleMachineReportLogic,
   sendMultiMachineSelector,
