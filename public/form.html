@@ -4,18 +4,17 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>90Shop Admin</title>
+  <style>body { visibility: hidden; }</style>
   <script>
-    // เด้งไปหน้าย่อยตาม ?mode= ตั้งแต่ยังไม่ทันวาด body (กันหน้า form กระพริบ 1-2 วิ)
+    // เด้งไปหน้าย่อยตาม ?mode= ก่อนวาด body — body ถูกซ่อนไว้ก่อน (visibility:hidden)
+    // ถ้าเด้ง: body ไม่โผล่ระหว่างรอโหลดหน้าใหม่ / ถ้าอยู่หน้านี้จริง init() จะเปิดให้เห็นเอง
     (function () {
       var dest = ({
         match: '/match.html',
         balance: '/balance.html',
         machinereport: '/machine-report.html'
       })[new URLSearchParams(location.search).get('mode')];
-      if (dest) {
-        document.documentElement.style.display = 'none'; // กันเนื้อหา form โผล่แวบ
-        location.replace(dest + location.search);
-      }
+      if (dest) { location.replace(dest + location.search); }
     })();
   </script>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
@@ -73,8 +72,14 @@
     const mode = params.get('mode') || 'owner';
 
     if (mode === 'match') { window.location.replace('/match.html'); }
-    if (mode === 'balance') { window.location.replace('/balance.html'); }
-    if (mode === 'machinereport') { window.location.replace('/machine-report.html'); }
+    else if (mode === 'balance') { window.location.replace('/balance.html'); }
+    else if (mode === 'machinereport') { window.location.replace('/machine-report.html'); }
+    else {
+      // อยู่หน้านี้จริง (owner/branch) — เปิด body ให้เห็น
+      document.body.style.visibility = 'visible';
+      // safety: ถ้า JS ค้าง ก็ยังเปิดให้เห็นใน 4 วิ
+      setTimeout(function () { document.body.style.visibility = 'visible'; }, 4000);
+    }
 
     async function init() {
       await liff.init({ liffId: '2009523613-hLnRGrZC' });
