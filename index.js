@@ -3,18 +3,12 @@ const {
   getReportSelectionMenu, 
   getBranchSelectMenu, 
   sendMonthlyTotalReport,
-  handleBranchReportLogic, 
+  handleBranchReportLogic,
   sendBranchReport,
-  handleMachineReportLogic,
-  sendMachineSelector,
-  sendMultiMachineSelector,
   sendDeleteMachineConfirm,
   deleteMachineData,
   sendClearMachineConfirm,
   clearMachineData,
-  sendDateSelector,
-  sendMachineDetailReport,
-  sendComparisonReport,
   getPointReportMenu,
   handlePointReportLogic,
   sendPointReport,
@@ -633,24 +627,6 @@ async function handleEvent(event) {
 async function handleEventInner(event) {
   if (event.type === 'postback') {
     const data = event.postback.data;
-    if (data.startsWith('MACHINE_DATE_SELECT|')) {
-      const idsStr = data.split('|')[1];
-      const selectedDate = event.postback.params.date;
-      return sendComparisonReport(event, idsStr, selectedDate, pool, client); // ส่ง pool แทน supabase
-    }
-
-    if (data.startsWith('TOGGLE_MACHINE:')) {
-      const raw = data.split(':')[1];
-      const [branchId, branchName, targetId, currentListStr] = raw.split('|');
-      let currentList = currentListStr ? currentListStr.split(',') : [];
-
-      if (currentList.includes(targetId)) {
-        currentList = currentList.filter(id => id !== targetId);
-      } else {
-        currentList.push(targetId);
-      }
-      return sendMultiMachineSelector(event, branchId, branchName, currentList, pool, client);
-    }
 
     if (data.startsWith('CONFIRM_DELETE_MACHINE:')) {
       const [branchId, branchName, machineId] = data.split(':')[1].split('|');
@@ -737,10 +713,6 @@ async function handleCommand(event, userText) {
     return sendBranchReport(event, branchId, branchName, pool, client);
   }
 
-  if (userText === 'REPORT_MACHINE_SELECT') {
-    return handleMachineReportLogic(event, pool, client);
-  }
-
   if (userText === 'POINT_REPORT_MENU') {
     return client.replyMessage(event.replyToken, {
       type: "flex",
@@ -756,35 +728,6 @@ async function handleCommand(event, userText) {
     const rawData = userText.replace('VIEW_POINT_REPORT:', '');
     const [type, branchId, branchName] = rawData.split('|');
     return sendPointReport(event, type, branchId, branchName, pool, client);
-  }
-
-
-  if (userText.startsWith('SELECT_MACHINE_BRANCH:')) {
-    const parts = userText.split(':')[1].split('|');
-    return sendMultiMachineSelector(event, parts[0], parts[1], [], pool, client);
-  }
-
-  if (userText.startsWith('CONFIRM_COMPARE:')) {
-    const selectedIdsStr = userText.split(':')[1];
-    return sendDateSelector(event, selectedIdsStr, client);
-  }
-
-  if (userText.startsWith('VIEW_COMPARE_REPORT:')) {
-    const [idsStr, date] = userText.split(':')[1].split('|');
-    return sendComparisonReport(event, idsStr, date, pool, client);
-  }
-
-  if (userText.startsWith('SELECT_MACHINE_ID:')) {
-    const parts = userText.split(':')[1].split('|');
-    return sendMachineSelector(event, parts[0], parts[1], pool, client);
-  }
-  if (userText.startsWith('SELECT_DATE_FOR:')) {
-    const machineId = userText.split(':')[1];
-    return sendDateSelector(event, machineId, client);
-  }
-  if (userText.startsWith('VIEW_MACHINE_REPORT:')) {
-    const parts = userText.split(':')[1].split('|');
-    return sendMachineDetailReport(event, parts[0], parts[1], pool, client);
   }
 
   if (userText.startsWith('AddSuper ')) {
