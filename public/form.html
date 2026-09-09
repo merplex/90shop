@@ -4,6 +4,20 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>90Shop Admin</title>
+  <script>
+    // เด้งไปหน้าย่อยตาม ?mode= ตั้งแต่ยังไม่ทันวาด body (กันหน้า form กระพริบ 1-2 วิ)
+    (function () {
+      var dest = ({
+        match: '/match.html',
+        balance: '/balance.html',
+        machinereport: '/machine-report.html'
+      })[new URLSearchParams(location.search).get('mode')];
+      if (dest) {
+        document.documentElement.style.display = 'none'; // กันเนื้อหา form โผล่แวบ
+        location.replace(dest + location.search);
+      }
+    })();
+  </script>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
