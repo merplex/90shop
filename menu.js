@@ -149,10 +149,11 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
 
     const machineData = {};
     const branchSummary = {
-      coin:   { day: 0, week: 0, month: 0, all: 0 },
-      bank:   { day: 0, week: 0, month: 0, all: 0 },
-      qr:     { day: 0, week: 0, month: 0, all: 0 },
-      redeem: { day: 0, week: 0, month: 0, all: 0 }
+      coin:       { day: 0, week: 0, month: 0, all: 0 },
+      bank:       { day: 0, week: 0, month: 0, all: 0 },
+      qr:         { day: 0, week: 0, month: 0, all: 0 },
+      redeem:     { day: 0, week: 0, month: 0, all: 0 },
+      grandTotal: { day: 0, week: 0, month: 0, all: 0 }
     };
 
     const p = v => parseInt(v) || 0;
@@ -170,7 +171,14 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
         qr:     { day: p(row.qr_day),   week: p(row.qr_week),   month: p(row.qr_month),   all: p(row.qr_all)   },
         redeem: redeemMap[String(mId).toLowerCase()] || { day: 0, week: 0, month: 0, all: 0 }
       };
-      ['coin', 'bank', 'qr', 'redeem'].forEach(t => {
+      // grand total ของเครื่องนี้ = เหรียญ+แบงค์+QR (ไม่รวมแลกแต้ม เพราะแลกแต้มไม่ใช่เงินสดเข้าเครื่อง)
+      machineData[mId].grandTotal = {
+        day:   machineData[mId].coin.day   + machineData[mId].bank.day   + machineData[mId].qr.day,
+        week:  machineData[mId].coin.week  + machineData[mId].bank.week  + machineData[mId].qr.week,
+        month: machineData[mId].coin.month + machineData[mId].bank.month + machineData[mId].qr.month,
+        all:   machineData[mId].coin.all   + machineData[mId].bank.all   + machineData[mId].qr.all
+      };
+      ['coin', 'bank', 'qr', 'redeem', 'grandTotal'].forEach(t => {
         branchSummary[t].day   += machineData[mId][t].day;
         branchSummary[t].week  += machineData[mId][t].week;
         branchSummary[t].month += machineData[mId][t].month;
@@ -196,7 +204,8 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
           createSummaryRow("🪙 เหรียญ", d.coin),
           createSummaryRow("💵 ธนบัตร", d.bank),
           createSummaryRow("📱 QR Code", d.qr),
-          ...(d.redeem.all > 0 ? [createRedeemNote(d.redeem)] : [])
+          ...(d.redeem.all > 0 ? [createRedeemNote(d.redeem)] : []),
+          createSummaryRow("💰 รวมทั้งหมด (เครื่องนี้)", d.grandTotal, true)
         ]
       });
     });
@@ -224,7 +233,10 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
           createSummaryRow("📱 QR รวม", branchSummary.qr),
           ...(branchSummary.redeem.all > 0 ? [createRedeemNote(branchSummary.redeem)] : []),
           { type: "separator" },
-          { type: "text", text: "* D=วันนี้ / W=สัปดาห์นี้ / M=เดือนนี้ / รวม=ทั้งหมด", size: "xxs", color: "#aaaaaa" }
+          createSummaryRow("🏆 Grand Total (ทุกเครื่องรวมกัน)", branchSummary.grandTotal, true),
+          { type: "separator" },
+          { type: "text", text: "* D=วันนี้ / W=สัปดาห์นี้ / M=เดือนนี้ / รวม=ทั้งหมด", size: "xxs", color: "#aaaaaa" },
+          { type: "text", text: "* Grand Total = เหรียญ+ธนบัตร+QR (ไม่รวมยอดแลกแต้ม)", size: "xxs", color: "#aaaaaa", wrap: true }
         ]
       }
     };
@@ -716,18 +728,21 @@ function createRedeemNote(data) {
   };
 }
 
-function createSummaryRow(label, data) {
+function createSummaryRow(label, data, highlight = false) {
   return {
     type: "box", layout: "vertical", spacing: "xs", margin: "sm",
+    backgroundColor: highlight ? "#fff7e6" : undefined,
+    paddingAll: highlight ? "sm" : undefined,
+    cornerRadius: highlight ? "md" : undefined,
     contents: [
-      { type: "text", text: label, size: "xs", weight: "bold", color: "#555555" },
+      { type: "text", text: label, size: highlight ? "sm" : "xs", weight: "bold", color: highlight ? "#FF1493" : "#555555" },
       {
         type: "box", layout: "horizontal",
         contents: [
           { type: "text", text: `D= ${data.day.toLocaleString()}`, size: "xxs", color: "#1DB446", flex: 2 },
           { type: "text", text: `W= ${data.week.toLocaleString()}`, size: "xxs", color: "#FF9900", flex: 2 },
           { type: "text", text: `M= ${data.month.toLocaleString()}`, size: "xxs", color: "#0099FF", flex: 2 },
-          { type: "text", text: `รวม= ${data.all.toLocaleString()}`, size: "xxs", color: "#000000", weight: "bold", align: "end", flex: 3 }
+          { type: "text", text: `รวม= ${data.all.toLocaleString()}`, size: highlight ? "sm" : "xxs", color: highlight ? "#FF1493" : "#000000", weight: "bold", align: "end", flex: 3 }
         ]
       }
     ]
