@@ -674,9 +674,10 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
         mrRow("💵 ธนบัตร", m.bank),
         mrRow("📱 QR Code", m.qr),
         ...(pts > 0 ? [mrRow("🎫 แลกแต้ม", pts, "แต้ม", "#9C27B0")] : []),
-        { type: "box", layout: "horizontal", contents: [
-          { type: "text", text: "รวมเครื่องนี้", size: "xs", color: "#888888", flex: 5 },
-          { type: "text", text: `฿${(m.coin + m.bank + m.qr).toLocaleString()}`, size: "xs", weight: "bold", align: "end", flex: 5 }
+        { type: "separator", margin: "md" },
+        { type: "box", layout: "horizontal", margin: "md", contents: [
+          { type: "text", text: "รวมเครื่องนี้", weight: "bold", color: "#FF1493", flex: 5 },
+          { type: "text", text: `฿${(m.coin + m.bank + m.qr).toLocaleString()}`, weight: "bold", align: "end", color: "#FF1493", flex: 5 }
         ] },
         { type: "separator", margin: "md" }
       ]
@@ -705,8 +706,8 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
       ...(tot.redeem > 0 ? [mrRow("🎫 แลกแต้มรวม", tot.redeem, "แต้ม", "#9C27B0")] : []),
       { type: "separator", margin: "md" },
       { type: "box", layout: "horizontal", margin: "md", contents: [
-        { type: "text", text: "รวมเงินทั้งหมด", weight: "bold", color: "#FF1493", flex: 5 },
-        { type: "text", text: `฿${(tot.coin + tot.bank + tot.qr).toLocaleString()}`, weight: "bold", align: "end", color: "#FF1493", flex: 5 }
+        { type: "text", text: "รวมเงินทั้งหมด", weight: "bold", color: "#333333", flex: 5 },
+        { type: "text", text: `฿${(tot.coin + tot.bank + tot.qr).toLocaleString()}`, weight: "bold", align: "end", color: "#333333", flex: 5 }
       ] },
       { type: "text", text: "* ยอดเงินไม่รวมส่วนที่จ่ายด้วยแต้ม", size: "xxs", color: "#aaaaaa", margin: "sm" }
     ] }
