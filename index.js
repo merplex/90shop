@@ -677,6 +677,15 @@ async function handleCommand(event, userText) {
     });
   }
 
+  // ตอบ LINE userId ของคนที่พิมพ์ (ใช้ตอนเพิ่มเจ้าของ/Super Admin)
+  if (userText.toLowerCase() === 'user_line') {
+    const lineId = event.source.userId;
+    return client.replyMessage(event.replyToken, {
+      type: 'text',
+      text: lineId ? lineId : 'ไม่พบ LINE ID (บัญชีนี้ยังไม่ได้แอดบอทเป็นเพื่อน หรือยังไม่ยอมรับเงื่อนไข)'
+    });
+  }
+
   if (userText.toLowerCase() === 'admin') {
     return client.replyMessage(event.replyToken, {
       type: "flex",
