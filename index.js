@@ -15,6 +15,7 @@ const {
   sendMonthlyYearMenu,
   sendMonthlyYearView,
   buildMachinePeriodReport,
+  sendMachineRecentTransactions,
   ALPHABET_GROUPS,
   chunkArray
 } = require('./menu');
@@ -720,6 +721,10 @@ async function handleCommand(event, userText) {
     const rawData = userText.replace('VIEW_REPORT_ID:', ''); 
     const [branchId, branchName] = rawData.split('|');
     return sendBranchReport(event, branchId, branchName, pool, client);
+  }
+
+  if (userText.startsWith('MR_RECENT:')) {
+    return sendMachineRecentTransactions(event, userText.slice('MR_RECENT:'.length), pool, client);
   }
 
   if (userText === 'POINT_REPORT_MENU') {

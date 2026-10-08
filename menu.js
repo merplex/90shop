@@ -669,7 +669,14 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
     return {
       type: "box", layout: "vertical", margin: "md", spacing: "xs",
       contents: [
-        { type: "text", text: `📟 ${mId}`, weight: "bold", size: "sm", color: "#111111", wrap: true },
+        { type: "box", layout: "horizontal", alignItems: "center", contents: [
+          { type: "text", text: `📟 ${mId}`, weight: "bold", size: "sm", color: "#111111", wrap: true, flex: 6 },
+          // ปุ่มดู 10 รายการล่าสุดของเครื่องนี้ (postback ไม่มี displayText แชทจะได้ไม่รก)
+          { type: "box", layout: "vertical", flex: 4, backgroundColor: "#FFE4F2", cornerRadius: "md",
+            paddingTop: "xs", paddingBottom: "xs", paddingStart: "sm", paddingEnd: "sm",
+            action: { type: "postback", label: "รายการล่าสุด", data: `MR_RECENT:${mId}` },
+            contents: [{ type: "text", text: "🕘 รายการล่าสุด", size: "xs", color: "#FF1493", weight: "bold", align: "center" }] }
+        ] },
         mrRow("🪙 เหรียญ", m.coin),
         mrRow("💵 ธนบัตร", m.bank),
         mrRow("📱 QR Code", m.qr),
@@ -717,6 +724,72 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
     { type: "flex", altText: `รายงานต่อเครื่อง (${label})`, contents: cardMachines },
     { type: "flex", altText: `สรุปรวม (${label})`, contents: cardSummary }
   ] };
+}
+
+// --- 10 รายการล่าสุดของเครื่อง (กดจากปุ่มในการ์ดรายงานต่อเครื่อง) ---
+// ข้อมูลเงินเก็บเป็นแถวต่อช่วงเวลาใน hourly_summary (QR มาเป็นช่วงสั้นตอนสแกน, เหรียญ/แบงค์
+// เป็นยอดรวมของช่วงนั้น) จึงแตกแต่ละแถวออกเป็นรายการตามประเภทที่มียอด แล้วเอา 10 อันล่าสุด
+async function sendMachineRecentTransactions(event, machineId, pool, client) {
+  const userId = event.source.userId;
+  const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
+  const params = [machineId];
+  let accessJoin = '';
+  if (superAdmin.rows.length === 0) {
+    accessJoin = 'JOIN owner_branch_mapping m ON m.branch_id = h.branch_id AND m.owner_line_id = $2';
+    params.push(userId);
+  }
+
+  const res = await pool.query(
+    `SELECT h.period_end, h.coin, h.bank, h.qr
+     FROM hourly_summary h ${accessJoin}
+     WHERE h.machine_id = $1 AND (h.coin > 0 OR h.bank > 0 OR h.qr > 0)
+     ORDER BY h.period_end DESC
+     LIMIT 10`,
+    params
+  );
+
+  const items = [];
+  res.rows.forEach(r => {
+    if (Number(r.qr) > 0)   items.push({ at: r.period_end, type: '📱 QR',     amount: Number(r.qr) });
+    if (Number(r.bank) > 0) items.push({ at: r.period_end, type: '💵 แบงค์',  amount: Number(r.bank) });
+    if (Number(r.coin) > 0) items.push({ at: r.period_end, type: '🪙 เหรียญ', amount: Number(r.coin) });
+  });
+  const latest = items.slice(0, 10);
+
+  const fmtTime = d => new Date(d).toLocaleString('en-GB', {
+    timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+  }).replace(',', '');
+
+  const rows = latest.length === 0
+    ? [{ type: "text", text: "ยังไม่มีรายการ (หรือไม่มีสิทธิ์ดูเครื่องนี้)", size: "sm", color: "#999999", wrap: true }]
+    : latest.map(it => ({
+        type: "box", layout: "horizontal", margin: "sm",
+        contents: [
+          { type: "text", text: fmtTime(it.at), size: "sm", color: "#555555", flex: 4 },
+          { type: "text", text: it.type, size: "sm", color: "#333333", flex: 3 },
+          { type: "text", text: `฿${it.amount.toLocaleString()}`, size: "sm", weight: "bold", align: "end", flex: 3 }
+        ]
+      }));
+
+  const bubble = {
+    type: "bubble", size: "giga",
+    header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [
+      { type: "text", text: "🕘 รายการล่าสุด", color: "#ffffff", weight: "bold" },
+      { type: "text", text: `📟 ${machineId}  •  ${latest.length} รายการ`, color: "#ffffff", size: "xs", wrap: true }
+    ] },
+    body: { type: "box", layout: "vertical", contents: [
+      { type: "box", layout: "horizontal", contents: [
+        { type: "text", text: "เวลา", size: "xs", color: "#aaaaaa", flex: 4 },
+        { type: "text", text: "ประเภท", size: "xs", color: "#aaaaaa", flex: 3 },
+        { type: "text", text: "ยอดเงิน", size: "xs", color: "#aaaaaa", align: "end", flex: 3 }
+      ] },
+      { type: "separator", margin: "sm" },
+      ...rows,
+      { type: "text", text: "* เหรียญ/แบงค์ เป็นยอดรวมต่อรอบที่เครื่องส่งข้อมูลเข้ามา", size: "xxs", color: "#aaaaaa", margin: "md", wrap: true }
+    ] }
+  };
+
+  return client.replyMessage(event.replyToken, { type: "flex", altText: `รายการล่าสุด ${machineId}`, contents: bubble });
 }
 
 // --- Helpers ---
@@ -767,6 +840,7 @@ module.exports = {
   handlePointReportLogic,
   sendPointReport,
   buildMachinePeriodReport,
+  sendMachineRecentTransactions,
   ALPHABET_GROUPS,
   chunkArray
 };
