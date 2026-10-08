@@ -726,9 +726,9 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
   ] };
 }
 
-// --- 10 รายการล่าสุดของเครื่อง (กดจากปุ่มในการ์ดรายงานต่อเครื่อง) ---
+// --- 15 รายการล่าสุดของเครื่อง (กดจากปุ่มในการ์ดรายงานต่อเครื่อง) ---
 // ข้อมูลเงินเก็บเป็นแถวต่อช่วงเวลาใน hourly_summary (QR มาเป็นช่วงสั้นตอนสแกน, เหรียญ/แบงค์
-// เป็นยอดรวมของช่วงนั้น) จึงแตกแต่ละแถวออกเป็นรายการตามประเภทที่มียอด แล้วเอา 10 อันล่าสุด
+// เป็นยอดรวมของช่วงนั้น) จึงแตกแต่ละแถวออกเป็นรายการตามประเภทที่มียอด แล้วเอา 15 อันล่าสุด
 async function sendMachineRecentTransactions(event, machineId, pool, client) {
   const userId = event.source.userId;
   const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
@@ -744,7 +744,7 @@ async function sendMachineRecentTransactions(event, machineId, pool, client) {
      FROM hourly_summary h ${accessJoin}
      WHERE h.machine_id = $1 AND (h.coin > 0 OR h.bank > 0 OR h.qr > 0)
      ORDER BY h.period_end DESC
-     LIMIT 10`,
+     LIMIT 15`,
     params
   );
 
@@ -754,7 +754,7 @@ async function sendMachineRecentTransactions(event, machineId, pool, client) {
     if (Number(r.bank) > 0) items.push({ at: r.period_end, type: '💵 แบงค์',  amount: Number(r.bank) });
     if (Number(r.coin) > 0) items.push({ at: r.period_end, type: '🪙 เหรียญ', amount: Number(r.coin) });
   });
-  const latest = items.slice(0, 10);
+  const latest = items.slice(0, 15);
 
   const fmtTime = d => new Date(d).toLocaleString('en-GB', {
     timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
