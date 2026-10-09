@@ -197,7 +197,9 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
             type: "box", layout: "horizontal",
             contents: [
               { type: "text", text: `📟 เครื่อง: ${mId}`, weight: "bold", size: "md", color: "#111111", flex: 1, gravity: "center", wrap: true },
-              { type: "text", text: "🧹", size: "sm", flex: 0, align: "end", gravity: "center", action: { type: "postback", data: `CONFIRM_CLEAR_MACHINE:${branchId}|${branchName}|${mId}` } },
+              // ดูรายการย้อนหลังของเครื่องนี้ (ใช้ตัวเดียวกับปุ่ม "รายการล่าสุด" ในรายงานต่อเครื่อง)
+              { type: "text", text: "📊", size: "sm", flex: 0, align: "end", gravity: "center", action: { type: "postback", data: `MR_RECENT:${mId}` } },
+              { type: "text", text: "🧹", size: "sm", flex: 0, align: "end", gravity: "center", margin: "lg", action: { type: "postback", data: `CONFIRM_CLEAR_MACHINE:${branchId}|${branchName}|${mId}` } },
               { type: "text", text: "❌", size: "sm", flex: 0, align: "end", gravity: "center", margin: "lg", action: { type: "postback", data: `CONFIRM_DELETE_MACHINE:${branchId}|${branchName}|${mId}` } }
             ]
           },
@@ -216,7 +218,7 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
       size: "giga",
       header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [
         { type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" },
-        { type: "text", text: "🧹 = ล้างยอดเป็น 0   ❌ = ลบเครื่อง (มีให้ยืนยันก่อน)", color: "#dddddd", size: "xxs", wrap: true }
+        { type: "text", text: "📊 = รายการย้อนหลัง   🧹 = ล้างยอดเป็น 0   ❌ = ลบเครื่อง (มีให้ยืนยันก่อน)", color: "#dddddd", size: "xxs", wrap: true }
       ] },
       body: { type: "box", layout: "vertical", contents: machineRows }
     };
