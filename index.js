@@ -503,7 +503,8 @@ app.post('/api/machine-report', express.json(), async (req, res) => {
 app.post('/api/balance/request', express.json(), async (req, res) => {
   const { machineId, branchId, amount, accessToken } = req.body;
   const amt = parseInt(amount, 10);
-  if (!machineId || !branchId || !amt || amt <= 0) {
+  // amount = 0 ถือว่าถูกต้อง (ส่งค่า 0 ไปที่เครื่อง) ห้ามแค่ค่าว่าง/ไม่ใช่ตัวเลข/ติดลบ
+  if (!machineId || !branchId || !Number.isInteger(amt) || amt < 0) {
     return res.status(400).json({ message: 'ข้อมูลไม่ครบหรือจำนวนเงินไม่ถูกต้อง' });
   }
 
