@@ -410,6 +410,23 @@ async function verifyLineUser(accessToken) {
   }
 }
 
+// สาขาที่ LINE user นี้มีสิทธิ์ดู (super admin เห็นทุกสาขา)
+async function getUserBranches(userId) {
+  const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
+  if (superAdmin.rows.length > 0) {
+    const all = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
+    return all.rows;
+  }
+  const owned = await pool.query(
+    `SELECT b.id, b.branch_name FROM owner_branch_mapping m
+     JOIN branches b ON m.branch_id = b.id
+     WHERE m.owner_line_id = $1
+     ORDER BY b.branch_name`,
+    [userId]
+  );
+  return owned.rows;
+}
+
 // --- จัดการยอดเงิน: รายชื่อสาขาเฉพาะของ LINE user นี้ (super admin เห็นทุกสาขา) ---
 app.get('/api/my-branches', async (req, res) => {
   try {
@@ -421,20 +438,7 @@ app.get('/api/my-branches', async (req, res) => {
       return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
     }
 
-    const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
-    if (superAdmin.rows.length > 0) {
-      const all = await pool.query('SELECT id, branch_name FROM branches ORDER BY branch_name');
-      return res.json(all.rows);
-    }
-
-    const owned = await pool.query(
-      `SELECT b.id, b.branch_name FROM owner_branch_mapping m
-       JOIN branches b ON m.branch_id = b.id
-       WHERE m.owner_line_id = $1
-       ORDER BY b.branch_name`,
-      [userId]
-    );
-    res.json(owned.rows);
+    res.json(await getUserBranches(userId));
   } catch (e) {
     console.error('[my-branches Error]', e.message);
     res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดสาขา' });
@@ -457,7 +461,43 @@ app.get('/api/machines/:branchId', async (req, res) => {
   }
 });
 
-// --- รายงานต่อเครื่อง (หน้า LIFF): เลือกหลายเครื่อง/หลายสาขา + ช่วงเวลา แล้วดันรายงาน Flex เข้าแชท ---
+// --- สถานะเครื่อง (หน้า LIFF status.html): ส่งยอดเงินดิบของสาขาให้หน้าเว็บคำนวณ work/sleep + กราฟ 24 ชม. เอง ---
+// ดึงย้อนหลัง 30 ชม. (เกิน 24 ชม. ไว้ 6 ชม. เผื่อรอบใช้งานที่เริ่มก่อนขอบซ้ายของกราฟ)
+app.get('/api/status-board/:branchId', async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'] || '';
+    const userId = await verifyLineUser(authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '');
+    if (!userId) return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
+
+    const branch = (await getUserBranches(userId)).find(b => String(b.id) === req.params.branchId);
+    if (!branch) return res.status(403).json({ message: 'ไม่พบสาขา หรือไม่มีสิทธิ์ดูสาขานี้' });
+
+    const now = Date.now();
+    const since = new Date(now - 30 * 3600e3);
+
+    const [machines, events] = await Promise.all([
+      pool.query('SELECT machine_id, MAX(period_end) AS last_seen FROM hourly_summary WHERE branch_id = $1 GROUP BY machine_id ORDER BY machine_id', [branch.id]),
+      pool.query(
+        `SELECT machine_id, period_end, coin + bank + qr AS amount FROM hourly_summary
+         WHERE branch_id = $1 AND period_end >= $2 AND (coin > 0 OR bank > 0 OR qr > 0)
+         ORDER BY period_end`,
+        [branch.id, since]
+      )
+    ]);
+
+    res.json({
+      branchName: branch.branch_name,
+      now,
+      machines: machines.rows.map(r => ({ id: r.machine_id, lastSeen: r.last_seen })),
+      events: events.rows.map(r => ({ m: r.machine_id, t: new Date(r.period_end).getTime(), amount: Number(r.amount) }))
+    });
+  } catch (e) {
+    console.error('[status-board Error]', e.message);
+    res.status(500).json({ message: 'เกิดข้อผิดพลาดในการโหลดสถานะเครื่อง' });
+  }
+});
+
+// --- รายงานต่อเครื่อง (หน้า LIFF):เลือกหลายเครื่อง/หลายสาขา + ช่วงเวลา แล้วดันรายงาน Flex เข้าแชท ---
 app.post('/api/machine-report', express.json(), async (req, res) => {
   try {
     const { accessToken, machineIds, period, start, end } = req.body;
@@ -685,6 +725,32 @@ async function handleCommand(event, userText) {
     return client.replyMessage(event.replyToken, {
       type: 'text',
       text: lineId ? lineId : 'ไม่พบ LINE ID (บัญชีนี้ยังไม่ได้แอดบอทเป็นเพื่อน หรือยังไม่ยอมรับเงื่อนไข)'
+    });
+  }
+
+  // สถานะเครื่อง (กดจาก rich menu): มีสาขาเดียวส่งปุ่มเปิดหน้าสาขานั้นเลย หลายสาขาให้เลือกก่อน
+  if (userText.toLowerCase() === 'status') {
+    const branches = event.source.userId ? await getUserBranches(event.source.userId) : [];
+    if (branches.length === 0) {
+      return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีสาขาที่คุณดูได้ (บัญชีนี้ยังไม่ได้ผูกกับสาขา)' });
+    }
+    const statusUri = b => `https://liff.line.me/2009523613-hLnRGrZC?mode=status&branch=${b.id}`;
+    const bubbles = chunkArray(branches, 10).slice(0, 12).map((group, i) => ({
+      type: 'bubble',
+      header: { type: 'box', layout: 'vertical', backgroundColor: '#37474F', contents: [
+        { type: 'text', text: '📊 สถานะเครื่อง', color: '#ffffff', weight: 'bold' },
+        { type: 'text', text: branches.length === 1 ? 'กดเพื่อดูสถานะและการใช้งาน' : `เลือกสาขา${i > 0 ? ` (${i + 1})` : ''}`, color: '#ffffff', size: 'xs' }
+      ] },
+      body: { type: 'box', layout: 'vertical', spacing: 'sm', contents: group.map(b => ({
+        type: 'button', style: branches.length === 1 ? 'primary' : 'secondary', height: 'sm',
+        ...(branches.length === 1 ? { color: '#37474F' } : {}),
+        action: { type: 'uri', label: b.branch_name.slice(0, 40), uri: statusUri(b) }
+      })) }
+    }));
+    return client.replyMessage(event.replyToken, {
+      type: 'flex',
+      altText: 'สถานะเครื่อง',
+      contents: bubbles.length === 1 ? bubbles[0] : { type: 'carousel', contents: bubbles }
     });
   }
 

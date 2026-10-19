@@ -12,7 +12,8 @@
       var dest = ({
         match: '/match.html',
         balance: '/balance.html',
-        machinereport: '/machine-report.html'
+        machinereport: '/machine-report.html',
+        status: '/status.html'
       })[new URLSearchParams(location.search).get('mode')];
       if (dest) { location.replace(dest + location.search); }
     })();

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>สถานะเครื่อง</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f0f0f0; color: #333; }
+
+    .top-bar { background: #37474F; color: #fff; padding: 14px 16px; font-size: 17px; font-weight: bold; display: flex; align-items: center; gap: 8px; }
+    .top-bar .sub { font-size: 13px; font-weight: normal; opacity: .8; margin-left: auto; }
+    .top-bar button { background: rgba(255,255,255,.15); color: #fff; border: none; border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+
+    .wrap { padding: 12px 16px 24px; }
+    .card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 2px 8px rgba(0,0,0,.06); margin-bottom: 12px; }
+    .card-title { font-size: 14px; font-weight: bold; color: #555; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .loading, .empty { padding: 24px; text-align: center; color: #aaa; font-size: 14px; }
+
+    .branch-item { padding: 13px 14px; border-bottom: 1px solid #f0f0f0; cursor: pointer; font-size: 15px; }
+    .branch-item:last-child { border-bottom: none; }
+    .branch-item:active { background: #eceff1; }
+
+    .m-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid #f3f3f3; }
+    .m-row:last-child { border-bottom: none; }
+    .m-name { font-size: 15px; font-weight: bold; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .m-info { flex: 1; min-width: 0; }
+    .m-sub { font-size: 12px; color: #888; margin-top: 2px; }
+    .badge { font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 999px; flex-shrink: 0; }
+    .badge.work { background: #FFF3C4; color: #8D6E00; }
+    .badge.sleep { background: #ECEFF1; color: #607D8B; }
+
+
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #666; margin-bottom: 10px; }
+    .legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; background: var(--c); }
+
+    /* กราฟ: แต่ละแถว = 1 เครื่อง, แกนนอน = เวลา 0:00 (ซ้าย) ถึง 24:00 (ขวา) เส้นตั้งทุก 4 ชม. */
+    .chart { display: flex; padding-right: 14px; --row: 28px; }
+    .names { flex-shrink: 0; max-width: 34%; padding-right: 8px; }
+    .names div { height: var(--row); line-height: var(--row); font-size: 12px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .plot { position: relative; flex: 1; min-width: 0; }
+    .gridline { position: absolute; top: 0; bottom: 20px; width: 1px; background: #e3e3e3; }
+    .row { position: relative; height: var(--row); display: flex; align-items: center; }
+    .bar { position: relative; width: 100%; height: 12px; border-radius: 3px; overflow: hidden; background: #A5D6A7; }
+    .seg { position: absolute; top: 0; bottom: 0; min-width: 2px; }
+    .seg.use { background: #FFB300; }
+    .seg.topup { background: #E53935; }
+    .ticks .tick-now { left: auto; right: -14px; transform: none; color: #37474F; font-weight: bold; }
+    .ticks { position: relative; height: 20px; }
+    .ticks div { position: absolute; top: 5px; transform: translateX(-50%); font-size: 11px; color: #999; }
+    .note { font-size: 11px; color: #999; margin-top: 10px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="top-bar">
+    <span>สถานะเครื่อง</span>
+    <span class="sub" id="branch-name"></span>
+    <button id="change-branch" hidden>เปลี่ยนสาขา</button>
+  </div>
+  <div class="wrap" id="content"><div class="loading">กำลังโหลด...</div></div>
+
+  <script>
+    const BKK_OFFSET = 7 * 3600e3;
+    const DAY = 864e5;
+    // คิดเวลาใช้งานต่อยอดเงิน: เครื่องให้ 15 วินาที/บาท และคนใช้จริงนานราว 2 เท่า = 30 วินาที/บาท
+    // เช่น หยอด 20 บาท = ใช้งานประมาณ 10 นาที
+    const MS_PER_BAHT = 30 * 1000;
+
+    let branches = [];
+    let board = null;
+    let currentBranchId = null;
+    let refreshTimer = null;
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    const bkkDayStart = ms => Math.floor((ms + BKK_OFFSET) / DAY) * DAY - BKK_OFFSET;
+    const fmtTime = ms => new Date(ms).toLocaleTimeString('en-GB', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false });
+    const fmtDateTime = ms => new Date(ms).toLocaleString('en-GB', { timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '');
+    const setContent = html => { document.getElementById('content').innerHTML = html; };
+
+    function shortName(machineId, branchName) {
+      const prefix = branchName + '_';
+      if (machineId.toLowerCase().startsWith(prefix.toLowerCase())) return machineId.slice(prefix.length);
+      const idx = machineId.lastIndexOf('_');
+      return idx > 0 ? machineId.slice(idx + 1) : machineId;
+    }
+
+    // แปลงรายการเงินเข้าของเครื่องหนึ่งเป็นช่วงใช้งาน
+    // เงินเข้าระหว่างที่รอบก่อนยังไม่หมดเวลา = เติมเงินก่อนหมดเวลา (แดง) และต่อเวลาออกไปจากเดิม
+    function buildSegments(events) {
+      const segs = [];
+      let end = 0;
+      for (const ev of events) {
+        const dur = ev.amount * MS_PER_BAHT;
+        if (ev.t < end) {
+          end += dur;
+          segs.push({ s: ev.t, e: end, topup: true });
+        } else {
+          end = ev.t + dur;
+          segs.push({ s: ev.t, e: end, topup: false });
+        }
+      }
+      return { segs, end };
+    }
+
+    async function init() {
+      await liff.init({ liffId: '2009523613-hLnRGrZC' });
+      if (!liff.isLoggedIn()) { liff.login(); return; }
+
+      try {
+        const res = await fetch('/api/my-branches', { headers: { Authorization: `Bearer ${liff.getAccessToken()}` } });
+        const data = await res.json();
+        if (!res.ok) return setContent(`<div class="empty">${escapeHtml(data.message || 'โหลดสาขาไม่สำเร็จ')}</div>`);
+        branches = data;
+      } catch (e) {
+        return setContent('<div class="empty">โหลดสาขาไม่สำเร็จ กรุณาลองใหม่</div>');
+      }
+
+      const fromLink = new URLSearchParams(location.search).get('branch');
+      if (fromLink && branches.some(b => String(b.id) === fromLink)) return openBranch(fromLink);
+      if (branches.length === 1) return openBranch(branches[0].id);
+      showBranchPicker();
+    }
+
+    function showBranchPicker() {
+      clearInterval(refreshTimer);
+      currentBranchId = null;
+      document.getElementById('branch-name').textContent = '';
+      document.getElementById('change-branch').hidden = true;
+      if (branches.length === 0) return setContent('<div class="empty">ยังไม่มีสาขาที่คุณดูได้</div>');
+      setContent(`<div class="card" style="padding:0">
+        <div class="card-title" style="padding:14px 14px 4px">เลือกสาขา</div>
+        ${branches.map(b => `<div class="branch-item" data-id="${escapeHtml(b.id)}">${escapeHtml(b.branch_name)}</div>`).join('')}
+      </div>`);
+    }
+
+    document.getElementById('content').addEventListener('click', e => {
+      const item = e.target.closest('.branch-item');
+      if (item) return openBranch(item.dataset.id);
+    });
+    document.getElementById('change-branch').addEventListener('click', showBranchPicker);
+
+    async function openBranch(id) {
+      currentBranchId = id;
+      board = null;
+      document.getElementById('change-branch').hidden = branches.length <= 1;
+      setContent('<div class="loading">กำลังโหลด...</div>');
+      await loadBoard();
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(loadBoard, 60 * 1000);
+    }
+
+    async function loadBoard() {
+      const id = currentBranchId;
+      try {
+        const res = await fetch(`/api/status-board/${encodeURIComponent(id)}`, { headers: { Authorization: `Bearer ${liff.getAccessToken()}` } });
+        const data = await res.json();
+        if (id !== currentBranchId) return;
+        if (!res.ok) return setContent(`<div class="empty">${escapeHtml(data.message || 'โหลดไม่สำเร็จ')}</div>`);
+        board = data;
+        render();
+      } catch (e) {
+        if (!board) setContent('<div class="empty">โหลดสถานะไม่สำเร็จ กรุณาลองใหม่</div>');
+      }
+    }
+
+    function render() {
+      const { branchName, now, machines, events } = board;
+      document.getElementById('branch-name').textContent = branchName;
+      if (machines.length === 0) return setContent('<div class="empty">ไม่พบเครื่องในสาขานี้</div>');
+
+      const perMachine = machines.map(m => {
+        const evs = events.filter(ev => ev.m === m.id);
+        return { ...m, name: shortName(m.id, branchName), lastUse: evs.length ? evs[evs.length - 1].t : null, ...buildSegments(evs) };
+      });
+
+      const statusRows = perMachine.map(m => {
+        const working = now < m.end;
+        const sub = working
+          ? `ใช้งานอยู่ ถึงประมาณ ${fmtTime(m.end)}`
+          : (m.lastUse ? `ใช้ล่าสุด ${fmtDateTime(m.lastUse)}` : 'ไม่มีการใช้งานใน 24 ชม.');
+        const seen = m.lastSeen ? ` · ส่งข้อมูลล่าสุด ${fmtDateTime(new Date(m.lastSeen).getTime())}` : '';
+        return `<div class="m-row">
+          <div class="m-info">
+            <div class="m-name">${escapeHtml(m.name)}</div>
+            <div class="m-sub">${escapeHtml(sub + seen)}</div>
+          </div>
+          <span class="badge ${working ? 'work' : 'sleep'}">${working ? 'WORK' : 'SLEEP'}</span>
+        </div>`;
+      }).join('');
+
+      // ช่วง 24 ชม. ล่าสุด: ขวาสุด = ตอนนี้, ซ้ายสุด = 24 ชม. ก่อน
+      const winStart = now - DAY;
+      const pct = ms => ((Math.min(Math.max(ms, winStart), now) - winStart) / DAY) * 100;
+
+      // เส้นตั้ง/ป้ายเวลาที่ชั่วโมงลงตัวทุก 4 ชม. (0:00, 4:00, ...) ที่อยู่ในช่วง
+      // ป้ายที่ชิดขอบขวาเกินไปข้ามไป ไม่ให้ทับป้าย "ตอนนี้"
+      const hourMarks = [];
+      for (let t = bkkDayStart(winStart); t <= now; t += 4 * 3600e3) {
+        if (t >= winStart) hourMarks.push(t);
+      }
+      const gridlines = hourMarks.map(t => `<div class="gridline" style="left:${pct(t)}%"></div>`).join('');
+      const ticks = hourMarks
+        .filter(t => now - t > 1.5 * 3600e3)
+        .map(t => `<div style="left:${pct(t)}%">${Number(fmtTime(t).slice(0, 2))}:00</div>`)
+        .join('') + '<div class="tick-now">ตอนนี้</div>';
+      const names = perMachine.map(m => `<div title="${escapeHtml(m.id)}">${escapeHtml(m.name)}</div>`).join('');
+      const rows = perMachine.map(m => {
+        const segs = m.segs
+          .filter(s => s.e > winStart && s.s < now)
+          .map(s => `<div class="seg ${s.topup ? 'topup' : 'use'}" style="left:${pct(s.s)}%;width:${pct(s.e) - pct(s.s)}%"></div>`)
+          .join('');
+        return `<div class="row"><div class="bar">${segs}</div></div>`;
+      }).join('');
+
+      setContent(`
+        <div class="card">
+          <div class="card-title">สถานะตอนนี้ <span style="margin-left:auto;font-weight:normal;font-size:12px;color:#999">อัปเดต ${fmtTime(now)}</span></div>
+          ${statusRows}
+        </div>
+        <div class="card">
+          <div class="card-title">การใช้งาน 24 ชม. ล่าสุด</div>
+          <div class="legend">
+            <span style="--c:#A5D6A7">ว่าง</span>
+            <span style="--c:#FFB300">ใช้งาน</span>
+            <span style="--c:#E53935">เติมเงินก่อนหมดเวลา</span>
+          </div>
+          <div class="chart">
+            <div class="names">${names}</div>
+            <div class="plot">${gridlines}${rows}<div class="ticks">${ticks}</div></div>
+          </div>
+          <div class="note">* เวลาใช้งานเป็นค่าประมาณจากยอดเงิน (1 บาท ≈ 30 วินาที เช่น 20 บาท ≈ 10 นาที) นับจากเวลาที่เครื่องส่งยอดเข้ามา ซึ่งเครื่องส่งทุก ~5 นาที</div>
+        </div>
+      `);
+    }
+
+    init();
+  </script>
+</body>
+</html>
