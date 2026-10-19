@@ -31,6 +31,17 @@
     .badge.work { background: #E8F5E9; color: #2E7D32; }
     .badge.sleep { background: #ECEFF1; color: #607D8B; }
 
+    /* ปุ่มเลือกช่วงเวลากราฟ (segmented control) */
+    .range { margin-left: auto; display: inline-flex; background: #ECEFF1; border-radius: 999px; padding: 3px; gap: 2px; }
+    .range button {
+      border: none; background: transparent; color: #607D8B; cursor: pointer;
+      font: inherit; font-size: 12px; font-weight: bold; padding: 6px 12px; border-radius: 999px;
+      transition: background .15s, color .15s, box-shadow .15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .range button.active { background: #37474F; color: #fff; box-shadow: 0 2px 6px rgba(55,71,79,.35); }
+    .range button:not(.active):active { background: #CFD8DC; }
+
 
     .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: #666; margin-bottom: 10px; }
     .legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; background: var(--c); }
@@ -71,6 +82,10 @@
     let board = null;
     let currentBranchId = null;
     let refreshTimer = null;
+    // ช่วงกราฟ (ชม.) → ระยะห่างเส้นเวลา (ชม.); จำค่าที่เลือกไว้ในเครื่องผู้ใช้
+    const RANGES = { 6: 1, 12: 2, 24: 4 };
+    let rangeHours = 6;
+    try { const saved = Number(localStorage.getItem('statusRange')); if (RANGES[saved]) rangeHours = saved; } catch (e) {}
 
     function escapeHtml(str) {
       return String(str)
@@ -141,6 +156,12 @@
     document.getElementById('content').addEventListener('click', e => {
       const item = e.target.closest('.branch-item');
       if (item) return openBranch(item.dataset.id);
+      const rangeBtn = e.target.closest('[data-range]');
+      if (rangeBtn) {
+        rangeHours = Number(rangeBtn.dataset.range);
+        try { localStorage.setItem('statusRange', String(rangeHours)); } catch (err) {}
+        render();
+      }
     });
     document.getElementById('change-branch').addEventListener('click', showBranchPicker);
 
@@ -193,19 +214,21 @@
         </div>`;
       }).join('');
 
-      // ช่วง 24 ชม. ล่าสุด: ขวาสุด = ตอนนี้, ซ้ายสุด = 24 ชม. ก่อน
-      const winStart = now - DAY;
-      const pct = ms => ((Math.min(Math.max(ms, winStart), now) - winStart) / DAY) * 100;
+      // ช่วง N ชม. ล่าสุด (6/12/24): ขวาสุด = ตอนนี้, ซ้ายสุด = N ชม. ก่อน
+      const span = rangeHours * 3600e3;
+      const winStart = now - span;
+      const pct = ms => ((Math.min(Math.max(ms, winStart), now) - winStart) / span) * 100;
 
-      // เส้นตั้ง/ป้ายเวลาที่ชั่วโมงลงตัวทุก 4 ชม. (0:00, 4:00, ...) ที่อยู่ในช่วง
+      // เส้นตั้ง/ป้ายเวลาที่ชั่วโมงลงตัว ห่างตามช่วง (6 ชม. ทุก 1 ชม., 12 ชม. ทุก 2, 24 ชม. ทุก 4)
       // ป้ายที่ชิดขอบขวาเกินไปข้ามไป ไม่ให้ทับป้าย "ตอนนี้"
+      const step = RANGES[rangeHours] * 3600e3;
       const hourMarks = [];
-      for (let t = bkkDayStart(winStart); t <= now; t += 4 * 3600e3) {
+      for (let t = bkkDayStart(winStart); t <= now; t += step) {
         if (t >= winStart) hourMarks.push(t);
       }
       const gridlines = hourMarks.map(t => `<div class="gridline" style="left:${pct(t)}%"></div>`).join('');
       const ticks = hourMarks
-        .filter(t => now - t > 1.5 * 3600e3)
+        .filter(t => now - t > span / 16)
         .map(t => `<div style="left:${pct(t)}%">${Number(fmtTime(t).slice(0, 2))}:00</div>`)
         .join('') + '<div class="tick-now">ตอนนี้</div>';
       const names = perMachine.map(m => `<div title="${escapeHtml(m.id)}">${escapeHtml(m.name)}</div>`).join('');
@@ -223,7 +246,11 @@
           ${statusRows}
         </div>
         <div class="card">
-          <div class="card-title">การใช้งาน 24 ชม. ล่าสุด</div>
+          <div class="card-title">การใช้งานย้อนหลัง
+            <div class="range">
+              ${Object.keys(RANGES).map(h => `<button data-range="${h}" class="${Number(h) === rangeHours ? 'active' : ''}">${h} ชม.</button>`).join('')}
+            </div>
+          </div>
           <div class="legend">
             <span style="--c:#E0E0E0">ว่าง</span>
             <span style="--c:#43A047">ใช้งาน</span>
