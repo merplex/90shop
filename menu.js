@@ -186,11 +186,10 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
       });
     });
 
-    const machineRows = [];
-    Object.keys(machineData).sort().forEach((mId, index) => {
+    // สร้างบล็อกของแต่ละเครื่อง
+    const machineBlocks = Object.keys(machineData).sort().map(mId => {
       const d = machineData[mId];
-      if (index > 0) machineRows.push({ type: "separator", margin: "xl" });
-      machineRows.push({
+      return {
         type: "box", layout: "vertical", margin: "md", spacing: "sm",
         contents: [
           {
@@ -210,18 +209,38 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
           { type: "separator", margin: "sm" },
           createSummaryRow("💰 Grand Total", d.grandTotal)
         ]
-      });
+      };
     });
 
-    const flexAllMachines = {
+    // LINE จำกัด bubble ละ 30KB — ร้านที่มีหลายเครื่อง (~10 เครื่องขึ้นไป เช่น 90wash01) ถ้ายัดรวม bubble เดียว
+    // LINE จะตอบ 400 แล้วไม่มีอะไรขึ้นเลย จึงแบ่งเป็นหลาย bubble ตามขนาดจริง
+    const makeMachineBubble = (rows, page, totalPages) => ({
       type: "bubble",
       size: "giga",
       header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [
-        { type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}`, color: "#ffffff", weight: "bold" },
+        { type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}${totalPages > 1 ? ` (${page}/${totalPages})` : ''}`, color: "#ffffff", weight: "bold", wrap: true },
         { type: "text", text: "📊 = รายการย้อนหลัง   🧹 = ล้างยอดเป็น 0   ❌ = ลบเครื่อง (มีให้ยืนยันก่อน)", color: "#dddddd", size: "xxs", wrap: true }
       ] },
-      body: { type: "box", layout: "vertical", contents: machineRows }
-    };
+      body: { type: "box", layout: "vertical", contents: rows }
+    });
+    const MAX_BUBBLE_BYTES = 27000; // เผื่อจาก 30KB สำหรับ header / เลขหน้า
+    const machineChunks = [];
+    let current = [];
+    machineBlocks.forEach(block => {
+      const candidate = current.length ? [...current, { type: "separator", margin: "xl" }, block] : [block];
+      if (current.length && Buffer.byteLength(JSON.stringify(makeMachineBubble(candidate, 99, 99))) > MAX_BUBBLE_BYTES) {
+        machineChunks.push(current);
+        current = [block];
+      } else {
+        current = candidate;
+      }
+    });
+    if (current.length) machineChunks.push(current);
+    const machineMessages = machineChunks.map((rows, i) => ({
+      type: "flex",
+      altText: "รายงานรายเครื่องละเอียด",
+      contents: makeMachineBubble(rows, i + 1, machineChunks.length)
+    }));
 
     const flexSummary = {
       type: "bubble",
@@ -244,11 +263,23 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
       }
     };
 
-    return client.replyMessage(event.replyToken, [
-      { type: "flex", altText: "รายงานรายเครื่องละเอียด", contents: flexAllMachines },
-      { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary }
-    ]);
-  } catch (err) { console.error(err); }
+    // reply ได้ไม่เกิน 5 ข้อความ: ส่งรายเครื่องได้ 4 + สรุปสาขา 1 ที่เหลือ push ตามไปทีละ 5
+    const summaryMessage = { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary };
+    const firstBatch = machineMessages.slice(0, 4);
+    const rest = machineMessages.slice(4);
+    await client.replyMessage(event.replyToken, [...firstBatch, ...(rest.length ? [] : [summaryMessage])]);
+    if (rest.length) {
+      const pushList = [...rest, summaryMessage];
+      for (let i = 0; i < pushList.length; i += 5) {
+        await client.pushMessage(event.source.userId, pushList.slice(i, i + 5));
+      }
+    }
+  } catch (err) {
+    console.error('sendBranchReport error:', err?.originalError?.response?.data || err);
+    try {
+      await client.replyMessage(event.replyToken, { type: 'text', text: `⚠️ แสดงรายงานสาขา ${branchName} ไม่สำเร็จ กรุณาลองใหม่อีกครั้งค่ะ` });
+    } catch (_) {}
+  }
 }
 
 // --- 2.5 รายงานแต้มสะสม (Point Events) ---
