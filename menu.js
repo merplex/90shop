@@ -190,57 +190,44 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
     const machineBlocks = Object.keys(machineData).sort().map(mId => {
       const d = machineData[mId];
       return {
-        type: "box", layout: "vertical", margin: "md", spacing: "sm",
+        type: "box", layout: "vertical", margin: "lg", spacing: "xs",
         contents: [
           {
             type: "box", layout: "horizontal",
             contents: [
-              { type: "text", text: `📟 เครื่อง: ${mId}`, weight: "bold", size: "md", color: "#111111", flex: 1, gravity: "center", wrap: true },
+              { type: "text", text: `📟 ${mId}`, weight: "bold", size: "md", color: "#111111", flex: 1, gravity: "center", wrap: true },
               // ดูรายการย้อนหลังของเครื่องนี้ (ใช้ตัวเดียวกับปุ่ม "รายการล่าสุด" ในรายงานต่อเครื่อง)
               { type: "text", text: "📊", size: "sm", flex: 0, align: "end", gravity: "center", action: { type: "postback", data: `MR_RECENT:${mId}` } },
               { type: "text", text: "🧹", size: "sm", flex: 0, align: "end", gravity: "center", margin: "lg", action: { type: "postback", data: `CONFIRM_CLEAR_MACHINE:${branchId}|${branchName}|${mId}` } },
               { type: "text", text: "❌", size: "sm", flex: 0, align: "end", gravity: "center", margin: "lg", action: { type: "postback", data: `CONFIRM_DELETE_MACHINE:${branchId}|${branchName}|${mId}` } }
             ]
           },
-          createSummaryRow("🪙 เหรียญ", d.coin),
-          createSummaryRow("💵 ธนบัตร", d.bank),
-          createSummaryRow("📱 QR Code", d.qr),
+          createCompactRow("🪙", d.coin),
+          createCompactRow("💵", d.bank),
+          createCompactRow("📱", d.qr),
           ...(d.redeem.all > 0 ? [createRedeemNote(d.redeem)] : []),
-          { type: "separator", margin: "sm" },
-          createSummaryRow("💰 Grand Total", d.grandTotal)
+          createCompactRow("💰", d.grandTotal, true)
         ]
       };
     });
 
-    // LINE จำกัด bubble ละ 30KB — ร้านที่มีหลายเครื่อง (~10 เครื่องขึ้นไป เช่น 90wash01) ถ้ายัดรวม bubble เดียว
-    // LINE จะตอบ 400 แล้วไม่มีอะไรขึ้นเลย จึงแบ่งเป็นหลาย bubble ตามขนาดจริง
-    const makeMachineBubble = (rows, page, totalPages) => ({
-      type: "bubble",
-      size: "giga",
-      header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [
-        { type: "text", text: `📋 รายงานแยกเครื่อง: ${branchName}${totalPages > 1 ? ` (${page}/${totalPages})` : ''}`, color: "#ffffff", weight: "bold", wrap: true },
-        { type: "text", text: "📊 = รายการย้อนหลัง   🧹 = ล้างยอดเป็น 0   ❌ = ลบเครื่อง (มีให้ยืนยันก่อน)", color: "#dddddd", size: "xxs", wrap: true }
-      ] },
-      body: { type: "box", layout: "vertical", contents: rows }
+    // แสดงหน้าละ 5 เครื่อง เป็น carousel เลื่อนไปทางขวา และ bubble สุดท้ายคือสรุปภาพรวมสาขา
+    // (เดิมยัดทุกเครื่องใน bubble เดียว ร้านที่มี ~10 เครื่องขึ้นไปเช่น 90wash01 เกินลิมิต 30KB ของ LINE แล้วไม่ขึ้นเลย)
+    const MACHINES_PER_BUBBLE = 5;
+    const machineChunks = chunkArray(machineBlocks, MACHINES_PER_BUBBLE);
+    const machineBubbles = machineChunks.map((blocks, i) => {
+      const from = i * MACHINES_PER_BUBBLE + 1;
+      const to = from + blocks.length - 1;
+      return {
+        type: "bubble",
+        size: "giga",
+        header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [
+          { type: "text", text: `📋 ${branchName}  เครื่อง ${from}-${to} จาก ${machineBlocks.length}`, color: "#ffffff", weight: "bold", wrap: true },
+          { type: "text", text: "📊 ย้อนหลัง  🧹 ล้างยอด  ❌ ลบเครื่อง | 🪙เหรียญ 💵ธนบัตร 📱QR 💰รวม", color: "#dddddd", size: "xxs", wrap: true }
+        ] },
+        body: { type: "box", layout: "vertical", contents: blocks.flatMap((blk, j) => j > 0 ? [{ type: "separator", margin: "lg" }, blk] : [blk]) }
+      };
     });
-    const MAX_BUBBLE_BYTES = 27000; // เผื่อจาก 30KB สำหรับ header / เลขหน้า
-    const machineChunks = [];
-    let current = [];
-    machineBlocks.forEach(block => {
-      const candidate = current.length ? [...current, { type: "separator", margin: "xl" }, block] : [block];
-      if (current.length && Buffer.byteLength(JSON.stringify(makeMachineBubble(candidate, 99, 99))) > MAX_BUBBLE_BYTES) {
-        machineChunks.push(current);
-        current = [block];
-      } else {
-        current = candidate;
-      }
-    });
-    if (current.length) machineChunks.push(current);
-    const machineMessages = machineChunks.map((rows, i) => ({
-      type: "flex",
-      altText: "รายงานรายเครื่องละเอียด",
-      contents: makeMachineBubble(rows, i + 1, machineChunks.length)
-    }));
 
     const flexSummary = {
       type: "bubble",
@@ -263,16 +250,31 @@ async function sendBranchReport(event, branchId, branchName, pool, client) {
       }
     };
 
-    // reply ได้ไม่เกิน 5 ข้อความ: ส่งรายเครื่องได้ 4 + สรุปสาขา 1 ที่เหลือ push ตามไปทีละ 5
-    const summaryMessage = { type: "flex", altText: "สรุปภาพรวมสาขา", contents: flexSummary };
-    const firstBatch = machineMessages.slice(0, 4);
-    const rest = machineMessages.slice(4);
-    await client.replyMessage(event.replyToken, [...firstBatch, ...(rest.length ? [] : [summaryMessage])]);
-    if (rest.length) {
-      const pushList = [...rest, summaryMessage];
-      for (let i = 0; i < pushList.length; i += 5) {
-        await client.pushMessage(event.source.userId, pushList.slice(i, i + 5));
+    // carousel: ไม่เกิน 12 bubble และไม่เกิน 50KB ต่อข้อความ — ปกติจะได้ carousel เดียว
+    // ถ้าร้านใหญ่มากจนเกิน จะแตกเป็น carousel ถัดไป (bubble สรุปอยู่ท้ายสุดเสมอ)
+    const allBubbles = [...machineBubbles, flexSummary];
+    const MAX_CAROUSEL_BYTES = 48000;
+    const carousels = [];
+    let cur = [];
+    allBubbles.forEach(bub => {
+      const next = [...cur, bub];
+      if (cur.length && (next.length > 12 || Buffer.byteLength(JSON.stringify({ type: "carousel", contents: next })) > MAX_CAROUSEL_BYTES)) {
+        carousels.push(cur);
+        cur = [bub];
+      } else {
+        cur = next;
       }
+    });
+    if (cur.length) carousels.push(cur);
+    const messages = carousels.map(c => ({
+      type: "flex",
+      altText: `รายงานสาขา ${branchName}`,
+      contents: c.length === 1 ? c[0] : { type: "carousel", contents: c }
+    }));
+
+    await client.replyMessage(event.replyToken, messages.slice(0, 5));
+    for (let i = 5; i < messages.length; i += 5) {
+      await client.pushMessage(event.source.userId, messages.slice(i, i + 5));
     }
   } catch (err) {
     console.error('sendBranchReport error:', err?.originalError?.response?.data || err);
@@ -833,6 +835,21 @@ function createRedeemNote(data) {
     type: "text",
     text: `(แลกแต้ม  D= ${data.day.toLocaleString()} / W= ${data.week.toLocaleString()} / M= ${data.month.toLocaleString()} / รวม= ${data.all.toLocaleString()})`,
     size: "xxs", color: "#9C27B0", wrap: true, margin: "xs"
+  };
+}
+
+// แถวแบบย่อ (ไอคอน + D/W/M/รวม ในบรรทัดเดียว) ใช้ในรายงานแยกเครื่อง เพื่อให้ carousel ไม่เกิน 50KB
+function createCompactRow(icon, data, bold = false) {
+  const t = (text, color, flex, extra = {}) => ({ type: "text", text, size: "xxs", color, flex, ...extra });
+  return {
+    type: "box", layout: "horizontal",
+    contents: [
+      t(icon, "#555555", 1),
+      t(`D ${data.day.toLocaleString()}`, "#1DB446", 3),
+      t(`W ${data.week.toLocaleString()}`, "#FF9900", 3),
+      t(`M ${data.month.toLocaleString()}`, "#0099FF", 3),
+      t(data.all.toLocaleString(), "#000000", 4, { align: "end", ...(bold ? { weight: "bold" } : {}) })
+    ]
   };
 }
 
