@@ -493,7 +493,7 @@ function buildBranchMonthlySection(branchId, branchName, ce_year, availableYears
 
   return {
     titleContents: [
-      { type: "text", text: `📍 สาขา: ${branchName}`, color: "#ffffff", weight: "bold", flex: 1, gravity: "center", wrap: true },
+      { type: "text", text: `📍 ${branchName}`, color: "#ffffff", weight: "bold", flex: 1, gravity: "center", wrap: true },
       yearTag
     ],
     bodyContents: compact ? [
