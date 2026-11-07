@@ -933,7 +933,7 @@ async function handleCreateBranch(event, text) {
 }
 
 // --- รวมสาขาที่ชื่อซ้ำกันแบบต่างแค่ตัวพิมพ์ใหญ่เล็ก (เช่น 90wash01 / 90WASH01) ---
-// เก็บสาขาที่มีเจ้าของผูกไว้ (หรือมีข้อมูลมากกว่า) เป็นตัวหลัก ย้ายข้อมูลทั้งหมดของตัวอื่นมารวม แล้วลบตัวซ้ำ
+// เก็บสาขาที่เครื่องส่งยอดเข้ามาล่าสุดเป็นตัวหลัก (ชื่อตรงกับที่เครื่องใช้จริง) ย้ายข้อมูลและการผูกเจ้าของของตัวอื่นมารวม แล้วลบตัวซ้ำ
 // ทำใน transaction เดียว ถ้าพังตรงไหนจะ ROLLBACK ทั้งหมด ข้อมูลไม่หาย; รันซ้ำได้ปลอดภัย
 async function mergeCaseDuplicateBranches() {
   const c = await pool.connect();
@@ -947,9 +947,9 @@ async function mergeCaseDuplicateBranches() {
       const ranked = await c.query(
         `SELECT b.id, b.branch_name,
            (SELECT COUNT(*) FROM owner_branch_mapping m WHERE m.branch_id = b.id) AS owners,
-           (SELECT COUNT(*) FROM hourly_summary h WHERE h.branch_id = b.id) AS rows
+           (SELECT MAX(h.period_end) FROM hourly_summary h WHERE h.branch_id = b.id) AS last_seen
          FROM branches b WHERE b.id = ANY($1)
-         ORDER BY owners DESC, rows DESC`,
+         ORDER BY last_seen DESC NULLS LAST`,
         [g.ids]
       );
       const keeper = ranked.rows[0];
