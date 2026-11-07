@@ -755,7 +755,7 @@ async function handleCommand(event, userText) {
       return client.replyMessage(event.replyToken, { type: 'text', text: 'ยังไม่มีสาขาที่คุณดูได้ (บัญชีนี้ยังไม่ได้ผูกกับสาขา)' });
     }
     const statusUri = b => `https://liff.line.me/2009523613-hLnRGrZC?mode=status&branch=${b.id}`;
-    const bubbles = chunkArray(branches, 10).slice(0, 12).map((group, i) => ({
+    const bubbles = chunkArray(branches, 5).slice(0, 12).map((group, i) => ({
       type: 'bubble',
       header: { type: 'box', layout: 'vertical', backgroundColor: '#37474F', contents: [
         { type: 'text', text: '📊 สถานะเครื่อง', color: '#ffffff', weight: 'bold' },

@@ -86,20 +86,29 @@ async function handleBranchReportLogic(event, pool, client) {
   } catch (err) { console.error(err); }
 }
 
-function getBranchSelectMenu(mapping) {
-  return {
+// เมนูเลือกสาขา: ไม่เกิน 5 สาขาแสดงใน bubble เดียว ถ้าเกิน 5 แบ่งเป็น carousel หน้าละ 5 สาขา (สูงสุด 12 หน้า = 60 สาขา)
+const BRANCHES_PER_SELECT_BUBBLE = 5;
+function buildBranchSelectFlex(mapping, toData) {
+  const pages = chunkArray(mapping, BRANCHES_PER_SELECT_BUBBLE).slice(0, 12);
+  const bubbles = pages.map((group, i) => ({
     type: "bubble",
     body: {
       type: "box", layout: "vertical", spacing: "sm",
       contents: [
         { type: "text", text: "เลือกสาขาที่ต้องการดู", weight: "bold", size: "lg" },
-        ...mapping.map(m => ({
+        ...(pages.length > 1 ? [{ type: "text", text: `หน้า ${i + 1}/${pages.length} — เลื่อนเพื่อดูสาขาอื่น`, size: "xs", color: "#aaaaaa" }] : []),
+        ...group.map(m => ({
           type: "button", style: "secondary", height: "sm",
-          action: { type: "postback", label: m.branch_name, data: `VIEW_REPORT_ID:${m.branch_id}|${m.branch_name}` }
+          action: { type: "postback", label: String(m.branch_name).slice(0, 40), data: toData(m) }
         }))
       ]
     }
-  };
+  }));
+  return bubbles.length === 1 ? bubbles[0] : { type: "carousel", contents: bubbles };
+}
+
+function getBranchSelectMenu(mapping) {
+  return buildBranchSelectFlex(mapping, m => `VIEW_REPORT_ID:${m.branch_id}|${m.branch_name}`);
 }
 
 async function sendBranchReport(event, branchId, branchName, pool, client) {
@@ -322,19 +331,7 @@ async function handlePointReportLogic(event, type, pool, client) {
 }
 
 function getPointBranchSelectMenu(mapping, type) {
-  return {
-    type: "bubble",
-    body: {
-      type: "box", layout: "vertical", spacing: "sm",
-      contents: [
-        { type: "text", text: "เลือกสาขาที่ต้องการดู", weight: "bold", size: "lg" },
-        ...mapping.map(m => ({
-          type: "button", style: "secondary", height: "sm",
-          action: { type: "postback", label: m.branch_name, data: `VIEW_POINT_REPORT:${type}|${m.branch_id}|${m.branch_name}` }
-        }))
-      ]
-    }
-  };
+  return buildBranchSelectFlex(mapping, m => `VIEW_POINT_REPORT:${type}|${m.branch_id}|${m.branch_name}`);
 }
 
 async function sendPointReport(event, type, branchId, branchName, pool, client) {
@@ -448,8 +445,9 @@ async function fetchMonthlyData(pool, ownerLineId) {
   return { money: money.rows || [], redeem: redeem.rows || [] };
 }
 
-// สร้าง bubble รายเดือนของ 1 สาขา สำหรับปี ค.ศ. ที่เลือก
-function buildBranchMonthlyBubble(branchId, branchName, ce_year, availableYears, money, redeem) {
+// สร้างส่วนรายงานรายเดือนของ 1 สาขา (แถบหัว + เนื้อหา) สำหรับปี ค.ศ. ที่เลือก
+// compact = true: แถวรายเดือนเป็นข้อความหลายบรรทัดแบบคอลัมน์ (ประหยัดขนาด JSON ใช้ในการ์ดที่รวมหลายสาขา)
+function buildBranchMonthlySection(branchId, branchName, ce_year, availableYears, money, redeem, compact = false) {
   const bkkNow = new Date(Date.now() + 7 * 3600 * 1000);
   const curY = bkkNow.getUTCFullYear(), curM = bkkNow.getUTCMonth() + 1;
   const lastMonth = ce_year >= curY ? curM : 12;
@@ -459,9 +457,14 @@ function buildBranchMonthlyBubble(branchId, branchName, ce_year, availableYears,
 
   let totalMoney = 0, totalPts = 0;
   const rows = [];
+  const cMonth = [], cPts = [], cAmt = [];
   for (let m = 1; m <= lastMonth; m++) {
     const amt = moneyOf(m), pts = ptsOf(m);
     totalMoney += amt; totalPts += pts;
+    if (compact) {
+      cMonth.push(TH_MONTHS[m - 1]); cPts.push(pts > 0 ? `แต้ม ${pts.toLocaleString()}` : '-'); cAmt.push(`฿${amt.toLocaleString()}`);
+      continue;
+    }
     const label = `${TH_MONTHS[m - 1]}(${ce_year + 543})` + (pts > 0 ? ` #ใช้แต้ม ${pts.toLocaleString()}` : '');
     rows.push({
       type: "box", layout: "horizontal", contents: [
@@ -479,34 +482,89 @@ function buildBranchMonthlyBubble(branchId, branchName, ce_year, availableYears,
         contents: [{ type: "text", text: `${ce_year + 543} ▾`, size: "xs", weight: "bold", color: "#00b900", align: "center" }] }
     : { type: "text", text: `${ce_year + 543}`, size: "xs", weight: "bold", color: "#ffffff", align: "end", flex: 0, gravity: "center" };
 
+  if (compact) {
+    const col = (lines, flex, extra = {}) => ({ type: "text", text: lines.join("\n"), size: "sm", wrap: true, flex, ...extra });
+    rows.push({ type: "box", layout: "horizontal", contents: [
+      col(cMonth, 2, { color: "#888888" }),
+      ...(totalPts > 0 ? [col(cPts, 3, { color: "#9C27B0", size: "xs", align: "end" })] : []),
+      col(cAmt, 3, { align: "end" })
+    ] });
+  }
+
+  return {
+    titleContents: [
+      { type: "text", text: `📍 สาขา: ${branchName}`, color: "#ffffff", weight: "bold", flex: 1, gravity: "center", wrap: true },
+      yearTag
+    ],
+    bodyContents: compact ? [
+      ...rows,
+      { type: "box", layout: "horizontal", contents: [
+        { type: "text", text: "รวมทั้งปี", weight: "bold", size: "sm", flex: 2 },
+        ...(totalPts > 0 ? [{ type: "text", text: `แต้ม ${totalPts.toLocaleString()}`, size: "xs", color: "#9C27B0", align: "end", flex: 3 }] : []),
+        { type: "text", text: `฿${totalMoney.toLocaleString()}`, align: "end", weight: "bold", size: "sm", color: "#1DB446", flex: 3 }
+      ] }
+    ] : [
+      { type: "text", text: `สรุปยอดรายเดือน ปี ${ce_year + 543}`, size: "xs", weight: "bold", color: "#aaaaaa" },
+      { type: "separator", margin: "sm" },
+      ...rows,
+      { type: "separator", margin: "md" },
+      { type: "box", layout: "horizontal", margin: "md", contents: [
+        { type: "text", text: "รวมยอดทั้งปี", weight: "bold", size: "sm" },
+        { type: "text", text: `฿${totalMoney.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }
+      ] },
+      ...(totalPts > 0 ? [{ type: "box", layout: "horizontal", contents: [
+        { type: "text", text: "ใช้แต้มทั้งปี", size: "xs", color: "#9C27B0" },
+        { type: "text", text: `${totalPts.toLocaleString()} แต้ม`, align: "end", size: "xs", color: "#9C27B0" }
+      ] }] : [])
+    ]
+  };
+}
+
+const MONTHLY_FOOTNOTE = { type: "text", text: "* ยอด ฿ เป็นเงินล้วน ไม่รวมส่วนที่จ่ายด้วยแต้ม", size: "xxs", color: "#aaaaaa", margin: "sm", wrap: true };
+
+// bubble รายเดือนของ 1 สาขา (หน้าตาเดิม)
+function buildBranchMonthlyBubble(branchId, branchName, ce_year, availableYears, money, redeem) {
+  const sec = buildBranchMonthlySection(branchId, branchName, ce_year, availableYears, money, redeem);
   return {
     type: "bubble",
-    header: {
-      type: "box", layout: "horizontal", backgroundColor: "#00b900", spacing: "sm",
-      contents: [
-        { type: "text", text: `📍 สาขา: ${branchName}`, color: "#ffffff", weight: "bold", flex: 1, gravity: "center", wrap: true },
-        yearTag
-      ]
-    },
-    body: {
-      type: "box", layout: "vertical", spacing: "sm",
-      contents: [
-        { type: "text", text: `สรุปยอดรายเดือน ปี ${ce_year + 543}`, size: "xs", weight: "bold", color: "#aaaaaa" },
-        { type: "separator", margin: "sm" },
-        ...rows,
-        { type: "separator", margin: "md" },
-        { type: "box", layout: "horizontal", margin: "md", contents: [
-          { type: "text", text: "รวมยอดทั้งปี", weight: "bold", size: "sm" },
-          { type: "text", text: `฿${totalMoney.toLocaleString()}`, align: "end", weight: "bold", color: "#1DB446" }
-        ] },
-        ...(totalPts > 0 ? [{ type: "box", layout: "horizontal", contents: [
-          { type: "text", text: "ใช้แต้มทั้งปี", size: "xs", color: "#9C27B0" },
-          { type: "text", text: `${totalPts.toLocaleString()} แต้ม`, align: "end", size: "xs", color: "#9C27B0" }
-        ] }] : []),
-        { type: "text", text: "* ยอด ฿ เป็นเงินล้วน ไม่รวมส่วนที่จ่ายด้วยแต้ม", size: "xxs", color: "#aaaaaa", margin: "sm", wrap: true }
-      ]
-    }
+    header: { type: "box", layout: "horizontal", backgroundColor: "#00b900", spacing: "sm", contents: sec.titleContents },
+    body: { type: "box", layout: "vertical", spacing: "sm", contents: [...sec.bodyContents, MONTHLY_FOOTNOTE] }
   };
+}
+
+// bubble รายเดือนที่รวมหลายสาขาไว้ในการ์ดเดียว (ใช้เมื่อสาขาเกิน 12 ซึ่งเกินจำนวน bubble ต่อ carousel)
+function buildMultiBranchMonthlyBubble(sections) {
+  const contents = [];
+  sections.forEach((sec, i) => {
+    contents.push({ type: "box", layout: "horizontal", backgroundColor: "#00b900", cornerRadius: "md", paddingAll: "sm", spacing: "sm",
+      margin: i === 0 ? "none" : "xl", contents: sec.titleContents });
+    contents.push(...sec.bodyContents);
+  });
+  contents.push(MONTHLY_FOOTNOTE);
+  return { type: "bubble", body: { type: "box", layout: "vertical", spacing: "sm", contents } };
+}
+
+// แบ่ง n สาขาลง 12 การ์ด ให้การ์ดต้น ๆ รับมากกว่า เช่น 14 → [2,2,1,...,1], 25 → [3,2,...,2]
+function monthlyCardSizes(n) {
+  if (n <= 12) return Array(n).fill(1);
+  const base = Math.floor(n / 12), rem = n % 12;
+  return Array.from({ length: 12 }, (_, i) => base + (i < rem ? 1 : 0));
+}
+
+// รวม bubble เป็น carousel: ไม่เกิน 12 bubble และไม่เกิน ~50KB ต่อข้อความ, สูงสุด 5 ข้อความต่อการตอบ
+function packCarousels(bubbles, altText) {
+  const MAX_BYTES = 48000;
+  const groups = [];
+  let cur = [];
+  for (const b of bubbles) {
+    const next = [...cur, b];
+    if (cur.length && (next.length > 12 || Buffer.byteLength(JSON.stringify({ type: "carousel", contents: next })) > MAX_BYTES)) {
+      groups.push(cur);
+      cur = [b];
+    } else cur = next;
+  }
+  if (cur.length) groups.push(cur);
+  return groups.slice(0, 5).map(g => ({ type: "flex", altText, contents: g.length === 1 ? g[0] : { type: "carousel", contents: g } }));
 }
 
 // ปีที่มีข้อมูล (เงินหรือแต้ม) ของสาขานั้น เรียงใหม่→เก่า
@@ -528,16 +586,24 @@ async function sendYearlySummaryReport(event, pool, client) {
     const seen = new Set();
     [...money, ...redeem].forEach(r => { if (!seen.has(r.branch_id)) { seen.add(r.branch_id); branches.push({ id: r.branch_id, name: r.branch_name }); } });
 
-    const bubbles = branches.map(br => {
-      const years = yearsForBranch(br.id, money, redeem);
-      const showYear = years[0] || new Date().getFullYear();
-      return buildBranchMonthlyBubble(br.id, br.name, showYear, years, money, redeem);
-    });
+    const showYearOf = br => { const ys = yearsForBranch(br.id, money, redeem); return { ys, y: ys[0] || new Date().getFullYear() }; };
+    let bubbles;
+    const compactSection = br => { const { ys, y } = showYearOf(br); return buildBranchMonthlySection(br.id, br.name, y, ys, money, redeem, true); };
+    if (branches.length <= 12) {
+      bubbles = branches.map(br => { const { ys, y } = showYearOf(br); return buildBranchMonthlyBubble(br.id, br.name, y, ys, money, redeem); });
+      // แบบเต็มเกิน 50KB (สาขาเยอะใกล้ 12) → ใช้แบบย่อ การ์ดละ 1 สาขา เพื่อให้อยู่ใน carousel เดียว
+      if (packCarousels(bubbles, "").length > 1) bubbles = branches.map(br => buildMultiBranchMonthlyBubble([compactSection(br)]));
+    } else {
+      bubbles = [];
+      let idx = 0;
+      for (const size of monthlyCardSizes(branches.length)) {
+        const group = branches.slice(idx, idx + size);
+        idx += size;
+        bubbles.push(buildMultiBranchMonthlyBubble(group.map(compactSection)));
+      }
+    }
 
-    return client.replyMessage(event.replyToken, {
-      type: "flex", altText: "รายงานรายเดือน",
-      contents: { type: "carousel", contents: bubbles.slice(0, 10) }
-    });
+    return client.replyMessage(event.replyToken, packCarousels(bubbles, "รายงานรายเดือน"));
   } catch (err) { console.error('[sendYearlySummaryReport]', err); }
 }
 
