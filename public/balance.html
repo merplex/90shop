@@ -67,8 +67,8 @@
 
   <div class="footer">
     <div class="amount-row">
-      <label for="amount-input">จำนวนเงิน</label>
-      <input id="amount-input" type="number" min="0" step="1" placeholder="0" inputmode="numeric" />
+      <label for="amount-input">จำนวนเงิน / คำสั่ง</label>
+      <input id="amount-input" type="text" maxlength="20" placeholder="เช่น 100 หรือ r" autocapitalize="none" autocomplete="off" autocorrect="off" spellcheck="false" />
     </div>
     <div class="summary" id="summary"></div>
     <button id="confirm-btn" disabled>เลือกสาขาและเครื่องก่อน</button>
@@ -176,8 +176,16 @@
 
     document.getElementById('amount-input').addEventListener('input', updateConfirmState);
 
+    // ตัวเลขล้วน -> ส่งเป็นจำนวนเงิน, ตัวอักษร (เช่น r) -> ส่งเป็นข้อความตามที่พิมพ์
+    function parseInputValue() {
+      const raw = document.getElementById('amount-input').value.trim();
+      if (/^[0-9]+$/.test(raw)) return { value: parseInt(raw, 10), label: `฿${parseInt(raw, 10).toLocaleString()}` };
+      if (/^[A-Za-z0-9]{1,20}$/.test(raw)) return { value: raw, label: `"${raw}"` };
+      return null;
+    }
+
     function updateConfirmState() {
-      const amount = parseInt(document.getElementById('amount-input').value, 10);
+      const parsed = parseInputValue();
       const btn = document.getElementById('confirm-btn');
       const summaryEl = document.getElementById('summary');
 
@@ -187,20 +195,20 @@
         summaryEl.textContent = '';
         return;
       }
-      if (!Number.isInteger(amount) || amount < 0) {
+      if (!parsed) {
         btn.disabled = true;
-        btn.textContent = 'กรอกจำนวนเงิน';
+        btn.textContent = 'กรอกจำนวนเงิน หรือตัวอักษร (เช่น r)';
         summaryEl.textContent = `เครื่อง: ${selectedMachineId}`;
         return;
       }
       btn.disabled = false;
-      btn.textContent = `ยืนยันส่ง ฿${amount.toLocaleString()} ไปยังเครื่อง ${selectedMachineId}`;
+      btn.textContent = `ยืนยันส่ง ${parsed.label} ไปยังเครื่อง ${selectedMachineId}`;
       summaryEl.textContent = `เครื่อง: ${selectedMachineId}`;
     }
 
     document.getElementById('confirm-btn').addEventListener('click', async () => {
-      const amount = parseInt(document.getElementById('amount-input').value, 10);
-      if (!selectedBranch || !selectedMachineId || !Number.isInteger(amount) || amount < 0) return;
+      const parsed = parseInputValue();
+      if (!selectedBranch || !selectedMachineId || !parsed) return;
 
       const btn = document.getElementById('confirm-btn');
       btn.disabled = true;
@@ -213,7 +221,7 @@
           body: JSON.stringify({
             machineId: selectedMachineId,
             branchId: selectedBranch.id,
-            amount,
+            amount: parsed.value,
             accessToken: liff.getAccessToken()
           })
         });

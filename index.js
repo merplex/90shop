@@ -60,7 +60,11 @@ pool.query(`
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     confirmed_at TIMESTAMPTZ
   )
-`).catch(err => console.error('[DB Init Error]', err.message));
+`).then(() => pool.query(`
+  -- รองรับคำสั่งแบบตัวอักษร (เช่น "r"): เก็บใน command, ส่วน amount ใช้เฉพาะคำสั่งที่เป็นตัวเลข
+  ALTER TABLE balance_requests ADD COLUMN IF NOT EXISTS command TEXT;
+  ALTER TABLE balance_requests ALTER COLUMN amount DROP NOT NULL;
+`)).catch(err => console.error('[DB Init Error]', err.message));
 
 pool.query(`
   CREATE TABLE IF NOT EXISTS point_events (
@@ -550,11 +554,17 @@ app.post('/api/machine-report', express.json(), async (req, res) => {
 // ต้องเป็น super admin หรือเจ้าของสาขานั้นจริง (ยืนยันด้วย access token กับ LINE ก่อนเช็คสิทธิ์)
 app.post('/api/balance/request', express.json(), async (req, res) => {
   const { machineId, branchId, amount, accessToken } = req.body;
-  const amt = parseInt(amount, 10);
-  // amount = 0 ถือว่าถูกต้อง (ส่งค่า 0 ไปที่เครื่อง) ห้ามแค่ค่าว่าง/ไม่ใช่ตัวเลข/ติดลบ
-  if (!machineId || !branchId || !Number.isInteger(amt) || amt < 0) {
-    return res.status(400).json({ message: 'ข้อมูลไม่ครบหรือจำนวนเงินไม่ถูกต้อง' });
+  // รับได้ 2 แบบ: ตัวเลขล้วน (รวม 0) -> ส่งเป็นตัวเลขเหมือนเดิม
+  //             ตัวอักษร/ตัวเลขผสม เช่น "r" -> ส่งเป็นข้อความตามที่พิมพ์ไปที่เครื่อง (เครื่องตีความเอง)
+  const raw = String(amount ?? '').trim();
+  const isNumber = /^[0-9]+$/.test(raw);
+  const isCommand = !isNumber && /^[A-Za-z0-9]{1,20}$/.test(raw);
+  const amt = isNumber ? parseInt(raw, 10) : null;
+  if (!machineId || !branchId || !(isNumber ? Number.isSafeInteger(amt) : isCommand)) {
+    return res.status(400).json({ message: 'ข้อมูลไม่ครบ หรือค่าที่กรอกไม่ถูกต้อง (ตัวเลข หรือตัวอักษร a-z ไม่เกิน 20 ตัว)' });
   }
+  const command = isNumber ? null : raw;
+  const label = isNumber ? `฿${amt.toLocaleString()}` : `"${command}"`;
 
   try {
     const userId = await verifyLineUser(accessToken);
@@ -574,11 +584,11 @@ app.post('/api/balance/request', express.json(), async (req, res) => {
     }
 
     const inserted = await pool.query(
-      'INSERT INTO balance_requests (machine_id, branch_id, amount, requested_by) VALUES ($1, $2, $3, $4) RETURNING id',
-      [machineId, branchId, amt, userId]
+      'INSERT INTO balance_requests (machine_id, branch_id, amount, command, requested_by) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+      [machineId, branchId, amt, command, userId]
     );
-    console.log(`[Balance] Queued id=${inserted.rows[0].id} machine=${machineId} amount=${amt} by=${userId}`);
-    return res.json({ message: `ส่งคำสั่งเติม ฿${amt.toLocaleString()} ไปยังเครื่อง ${machineId} สำเร็จ` });
+    console.log(`[Balance] Queued id=${inserted.rows[0].id} machine=${machineId} ${isNumber ? `amount=${amt}` : `command=${command}`} by=${userId}`);
+    return res.json({ message: `ส่งคำสั่ง ${label} ไปยังเครื่อง ${machineId} สำเร็จ` });
   } catch (e) {
     console.error('[balance/request Error]', e.message);
     return res.status(500).json({ message: 'เกิดข้อผิดพลาดในการส่งคำสั่ง' });
@@ -592,7 +602,7 @@ app.get('/machine/check', async (req, res) => {
   const machine_id = req.query.machine_id || '';
   try {
     const result = await pool.query(
-      `SELECT id, amount, status FROM balance_requests
+      `SELECT id, amount, command, status FROM balance_requests
        WHERE machine_id = $1 AND (
            status = 'pending'
            OR (status = 'success' AND confirmed_at >= NOW() - INTERVAL '30 seconds')
@@ -606,8 +616,10 @@ app.get('/machine/check', async (req, res) => {
     }
     const row = result.rows[0];
     console.log(`[machine/check] machine_id=${machine_id} -> ${row.status} (log_id=${row.id})`);
-    if (row.status === 'success') return res.json({ status: 'success', log_id: row.id, points: row.amount });
-    res.json({ status: 'pending', log_id: row.id, points: row.amount });
+    // points: ตัวเลข (เช่น 100) สำหรับคำสั่งเติมเงิน หรือข้อความ (เช่น "r") สำหรับคำสั่งตัวอักษร
+    const points = row.command != null ? row.command : row.amount;
+    if (row.status === 'success') return res.json({ status: 'success', log_id: row.id, points });
+    res.json({ status: 'pending', log_id: row.id, points });
   } catch (e) {
     console.error('[machine/check Error]', e.message);
     res.status(500).json({ status: 'error' });
