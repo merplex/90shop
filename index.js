@@ -162,7 +162,7 @@ app.post('/api/add-branch', express.json(), async (req, res) => {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
-    const dupName = await pool.query('SELECT 1 FROM branches WHERE branch_name = $1', [name]);
+    const dupName = await pool.query('SELECT 1 FROM branches WHERE LOWER(branch_name) = LOWER($1)', [name]);
     if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อสาขา "${name}" มีอยู่แล้ว` });
     await pool.query('INSERT INTO branches (branch_name) VALUES ($1)', [name]);
     return res.json({ message: `บันทึกสาขา: ${name} สำเร็จ` });
@@ -254,7 +254,7 @@ app.put('/api/branch/:id', express.json(), async (req, res) => {
   try {
     const { name } = req.body;
     if (!name) return res.status(400).json({ message: 'ข้อมูลไม่ครบ' });
-    const dupName = await pool.query('SELECT 1 FROM branches WHERE branch_name = $1 AND id != $2', [name, req.params.id]);
+    const dupName = await pool.query('SELECT 1 FROM branches WHERE LOWER(branch_name) = LOWER($1) AND id != $2', [name, req.params.id]);
     if (dupName.rows.length > 0) return res.status(409).json({ message: `ชื่อสาขา "${name}" มีอยู่แล้ว` });
     await pool.query('UPDATE branches SET branch_name = $1 WHERE id = $2', [name, req.params.id]);
     res.json({ message: 'แก้ไขสำเร็จ' });
@@ -352,9 +352,17 @@ app.post('/api/transaction', express.json(), async (req, res) => {
   const branchCode = machine_id.substring(0, underscoreIdx);
 
   try {
-    let branchRes = await pool.query('SELECT id FROM branches WHERE branch_name = $1', [branchCode]);
+    // ชื่อสาขาเทียบแบบไม่สนตัวพิมพ์ใหญ่เล็ก — 90wash01 กับ 90WASH01 คือสาขาเดียวกัน
+    const findBranch = () => pool.query('SELECT id FROM branches WHERE LOWER(branch_name) = LOWER($1) LIMIT 1', [branchCode]);
+    let branchRes = await findBranch();
     if (branchRes.rows.length === 0) {
-      branchRes = await pool.query('INSERT INTO branches (branch_name) VALUES ($1) RETURNING id', [branchCode]);
+      try {
+        branchRes = await pool.query('INSERT INTO branches (branch_name) VALUES ($1) RETURNING id', [branchCode]);
+      } catch (e) {
+        // อีก request สร้างสาขานี้ไปพร้อมกันแล้ว (unique index ชน) — ดึงตัวที่มีอยู่แทน
+        branchRes = await findBranch();
+        if (branchRes.rows.length === 0) throw e;
+      }
     }
     const branchId = branchRes.rows[0].id;
 
@@ -853,6 +861,8 @@ async function handleCommand(event, userText) {
   if (userText.startsWith('RENAME_BRANCH:')) {
     const [id, newName] = userText.replace('RENAME_BRANCH:', '').split('|');
     if (!newName || newName === '[ชื่อใหม่]') return null;
+    const dupName = await pool.query('SELECT 1 FROM branches WHERE LOWER(branch_name) = LOWER($1) AND id != $2', [newName, id]);
+    if (dupName.rows.length > 0) return client.replyMessage(event.replyToken, { type: 'text', text: `❌ ชื่อสาขา "${newName}" มีอยู่แล้ว` });
     await pool.query('UPDATE branches SET branch_name = $1 WHERE id = $2', [newName, id]);
     return client.replyMessage(event.replyToken, { type: 'text', text: `✅ เปลี่ยนชื่อสาขาเป็น ${newName}` });
   }
@@ -916,9 +926,63 @@ async function handleCreateOwner(event, text) {
 
 async function handleCreateBranch(event, text) {
   const name = text.replace('Branch ', '').trim();
+  const dupName = await pool.query('SELECT 1 FROM branches WHERE LOWER(branch_name) = LOWER($1)', [name]);
+  if (dupName.rows.length > 0) return client.replyMessage(event.replyToken, { type: 'text', text: `❌ ชื่อสาขา "${name}" มีอยู่แล้ว` });
   await pool.query('INSERT INTO branches (branch_name) VALUES ($1)', [name]);
   return client.replyMessage(event.replyToken, { type: 'text', text: `✅ บันทึกสาขา: ${name}` });
 }
 
+// --- รวมสาขาที่ชื่อซ้ำกันแบบต่างแค่ตัวพิมพ์ใหญ่เล็ก (เช่น 90wash01 / 90WASH01) ---
+// เก็บสาขาที่มีเจ้าของผูกไว้ (หรือมีข้อมูลมากกว่า) เป็นตัวหลัก ย้ายข้อมูลทั้งหมดของตัวอื่นมารวม แล้วลบตัวซ้ำ
+// ทำใน transaction เดียว ถ้าพังตรงไหนจะ ROLLBACK ทั้งหมด ข้อมูลไม่หาย; รันซ้ำได้ปลอดภัย
+async function mergeCaseDuplicateBranches() {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    const groups = await c.query(
+      `SELECT LOWER(branch_name) AS k, array_agg(id) AS ids FROM branches
+       GROUP BY LOWER(branch_name) HAVING COUNT(*) > 1`
+    );
+    for (const g of groups.rows) {
+      const ranked = await c.query(
+        `SELECT b.id, b.branch_name,
+           (SELECT COUNT(*) FROM owner_branch_mapping m WHERE m.branch_id = b.id) AS owners,
+           (SELECT COUNT(*) FROM hourly_summary h WHERE h.branch_id = b.id) AS rows
+         FROM branches b WHERE b.id = ANY($1)
+         ORDER BY owners DESC, rows DESC`,
+        [g.ids]
+      );
+      const keeper = ranked.rows[0];
+      const others = ranked.rows.slice(1).map(r => r.id);
+      for (const t of ['hourly_summary', 'point_events', 'balance_requests']) {
+        await c.query(`UPDATE ${t} SET branch_id = $1 WHERE branch_id = ANY($2)`, [keeper.id, others]);
+      }
+      await c.query(
+        `INSERT INTO owner_branch_mapping (owner_line_id, branch_id)
+         SELECT DISTINCT m.owner_line_id, $1::uuid FROM owner_branch_mapping m
+         WHERE m.branch_id = ANY($2)
+           AND NOT EXISTS (SELECT 1 FROM owner_branch_mapping x WHERE x.owner_line_id = m.owner_line_id AND x.branch_id = $1::uuid)`,
+        [keeper.id, others]
+      );
+      await c.query('DELETE FROM owner_branch_mapping WHERE branch_id = ANY($1)', [others]);
+      await c.query('DELETE FROM branches WHERE id = ANY($1)', [others]);
+      console.log(`[Branch merge] รวม ${ranked.rows.map(r => r.branch_name).join(', ')} → ${keeper.branch_name}`);
+    }
+    await c.query('COMMIT');
+  } catch (e) {
+    await c.query('ROLLBACK').catch(() => {});
+    console.error('[Branch merge Error] ยกเลิกทั้งหมด ข้อมูลไม่เปลี่ยน:', e.message);
+    return;
+  } finally {
+    c.release();
+  }
+  // กันชื่อซ้ำแบบต่างตัวพิมพ์ในระดับฐานข้อมูล
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS branches_name_lower_uniq ON branches (LOWER(branch_name))')
+    .catch(e => console.error('[Branch unique index Error]', e.message));
+}
+
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`90Shop on Railway Postgres running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`90Shop on Railway Postgres running on port ${PORT}`);
+  mergeCaseDuplicateBranches();
+});

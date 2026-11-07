@@ -147,7 +147,7 @@
 
     function stripBranchPrefix(machineId) {
       const prefix = selectedBranch.branch_name + '_';
-      if (machineId.startsWith(prefix)) return machineId.slice(prefix.length);
+      if (machineId.toLowerCase().startsWith(prefix.toLowerCase())) return machineId.slice(prefix.length);
       const idx = machineId.lastIndexOf('_');
       return idx > 0 ? machineId.slice(idx + 1) : machineId;
     }

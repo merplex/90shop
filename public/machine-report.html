@@ -147,7 +147,7 @@
     // ----- เครื่อง -----
     function stripPrefix(mId) {
       const p = (selectedBranch.branch_name + '_');
-      if (mId.startsWith(p)) return mId.slice(p.length);
+      if (mId.toLowerCase().startsWith(p.toLowerCase())) return mId.slice(p.length);
       const i = mId.lastIndexOf('_'); return i > 0 ? mId.slice(i + 1) : mId;
     }
     function renderMachines() {
