@@ -512,7 +512,7 @@ app.get('/api/status-board/:branchId', async (req, res) => {
 // --- รายงานต่อเครื่อง (หน้า LIFF):เลือกหลายเครื่อง/หลายสาขา + ช่วงเวลา แล้วดันรายงาน Flex เข้าแชท ---
 app.post('/api/machine-report', express.json(), async (req, res) => {
   try {
-    const { accessToken, machineIds, period, start, end } = req.body;
+    const { accessToken, machineIds, period, start, end, startTime, endTime } = req.body;
     const userId = await verifyLineUser(accessToken);
     if (!userId) return res.status(401).json({ message: 'ยืนยันตัวตนไม่สำเร็จ กรุณาเข้า LIFF ใหม่อีกครั้ง' });
 
@@ -539,7 +539,7 @@ app.post('/api/machine-report', express.json(), async (req, res) => {
     const okIds = allowed.rows.map(r => r.machine_id);
     if (okIds.length === 0) return res.status(400).json({ message: 'ไม่พบเครื่องที่เลือก หรือไม่มีสิทธิ์เข้าถึง' });
 
-    const { messages, error } = await buildMachinePeriodReport(pool, okIds, period, start, end);
+    const { messages, error } = await buildMachinePeriodReport(pool, okIds, period, start, end, startTime, endTime);
     if (error) return res.status(400).json({ message: error });
 
     await client.pushMessage(userId, messages);

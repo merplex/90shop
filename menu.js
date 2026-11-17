@@ -714,16 +714,19 @@ async function clearMachineData(event, branchId, branchName, machineId, pool, cl
 }
 
 // --- รายงานต่อเครื่อง (เลือกจากหน้า LIFF) : แยก เหรียญ/ธนบัตร/QR/แลกแต้ม ตามช่วงเวลาที่เลือก ---
-function machineReportPeriodBounds(period, startStr, endStr) {
+function machineReportPeriodBounds(period, startStr, endStr, startTime, endTime) {
   const { dayStart, weekStart, monthStart } = getThaiPeriodBounds();
   const now = new Date();
   if (period === 'today') return { from: dayStart, to: now, label: 'วันนี้' };
   if (period === 'week')  return { from: weekStart, to: now, label: 'สัปดาห์นี้' };
   if (period === 'month') return { from: monthStart, to: now, label: 'เดือนนี้' };
-  // custom: YYYY-MM-DD (เวลาไทย) รวมปลายทั้งวัน
-  const from = new Date(`${startStr}T00:00:00+07:00`);
-  const to = new Date(`${endStr}T23:59:59.999+07:00`);
-  return { from, to, label: `${startStr} – ${endStr}` };
+  // custom: วันที่ YYYY-MM-DD + เวลา HH:MM (เวลาไทย) — นาทีสุดท้ายนับรวมทั้งนาที
+  const okTime = t => typeof t === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+  const st = okTime(startTime) ? startTime : '00:00';
+  const et = okTime(endTime) ? endTime : '23:59';
+  const from = new Date(`${startStr}T${st}:00+07:00`);
+  const to = new Date(`${endStr}T${et}:59.999+07:00`);
+  return { from, to, label: `${startStr} ${st} – ${endStr} ${et}` };
 }
 
 function mrRow(label, value, unit = '฿', color = '#000000') {
@@ -737,16 +740,18 @@ function mrRow(label, value, unit = '฿', color = '#000000') {
 }
 
 // คืน array ของ flex messages (การ์ดแยกเครื่อง + การ์ดสรุปรวมเฉพาะเครื่องที่เลือก)
-async function buildMachinePeriodReport(pool, machineIds, period, startStr, endStr) {
-  const { from, to, label } = machineReportPeriodBounds(period, startStr, endStr);
+async function buildMachinePeriodReport(pool, machineIds, period, startStr, endStr, startTime, endTime) {
+  const { from, to, label } = machineReportPeriodBounds(period, startStr, endStr, startTime, endTime);
   if (period === 'custom' && (isNaN(from) || isNaN(to) || from > to)) {
-    return { error: 'ช่วงวันที่ไม่ถูกต้อง' };
+    return { error: 'ช่วงวันที่/เวลาไม่ถูกต้อง' };
   }
 
+  // hourly_summary เก็บเป็นก้อนรายชั่วโมง: นับก้อนที่ "คาบเกี่ยว" ช่วงที่เลือก
+  // (เช่น เริ่ม 00:01 ยังได้ก้อน 00:00–01:00 ไม่ทำยอดชั่วโมงแรกหาย)
   const moneyRes = await pool.query(
     `SELECT machine_id, SUM(coin)::bigint coin, SUM(bank)::bigint bank, SUM(qr)::bigint qr
      FROM hourly_summary
-     WHERE machine_id = ANY($1) AND period_start >= $2 AND period_start <= $3
+     WHERE machine_id = ANY($1) AND period_end > $2 AND period_start <= $3
      GROUP BY machine_id`,
     [machineIds, from.toISOString(), to.toISOString()]
   );

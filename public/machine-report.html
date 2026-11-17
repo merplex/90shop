@@ -17,10 +17,56 @@
       background: rgba(255,255,255,.25); color: #fff; border: 1px solid transparent;
     }
     .chip.active { background: #fff; color: #FF1493; font-weight: bold; }
-    .range-row { display: none; gap: 6px; margin-top: 8px; align-items: center; }
-    .range-row.show { display: flex; }
-    .range-row input { flex: 1; padding: 6px 8px; border-radius: 6px; border: none; font-size: 13px; }
-    .range-row span { color: #fff; font-size: 13px; }
+    .range-wrap { display: none; margin-top: 8px; }
+    .range-wrap.show { display: block; }
+    .range-row { display: flex; gap: 6px; align-items: center; }
+    .range-row + .range-row { margin-top: 6px; }
+    .range-row > span { color: #fff; font-size: 13px; }
+    .pick-field {
+      flex: 1; min-width: 0; padding: 7px 8px; border-radius: 6px; border: none; background: #fff;
+      font-size: 13px; color: #333; display: flex; align-items: center; gap: 6px; cursor: pointer;
+      font-family: inherit; text-align: left;
+    }
+    .pick-field .ico { font-size: 14px; }
+
+    /* ----- popup ปฏิทิน / นาฬิกา (ธีมชมพูเดียวกับหน้า) ----- */
+    .pk-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
+    .pk-mask.show { display: flex; }
+    .pk-box { background: #fff; border-radius: 14px; width: 100%; max-width: 320px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .pk-head { background: #FF1493; color: #fff; padding: 14px 18px; }
+    .pk-head .sub { font-size: 12px; opacity: .85; }
+    .pk-head .big { font-size: 24px; font-weight: bold; margin-top: 2px; }
+    .pk-body { padding: 10px 12px 4px; }
+    .pk-actions { display: flex; justify-content: flex-end; gap: 4px; padding: 6px 10px 10px; }
+    .pk-actions button { background: none; border: none; color: #FF1493; font-weight: bold; font-size: 14px; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+    .pk-actions button:active { background: #ffeef6; }
+
+    .cal-nav { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 8px; }
+    .cal-nav .m { font-weight: bold; font-size: 14px; color: #333; }
+    .cal-nav button { background: none; border: none; font-size: 20px; color: #FF1493; width: 36px; height: 36px; border-radius: 50%; cursor: pointer; }
+    .cal-nav button:active { background: #ffeef6; }
+    .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; row-gap: 2px; }
+    .cal-grid .dow { font-size: 11px; color: #999; padding: 4px 0; }
+    .cal-grid .d { font-size: 13px; color: #333; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .cal-grid .d span { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border-radius: 50%; }
+    .cal-grid .d.today span { border: 1px solid #FF1493; color: #FF1493; }
+    .cal-grid .d.inrange { background: #ffeef6; }
+    .cal-grid .d.sel span { background: #FF1493; color: #fff; font-weight: bold; }
+    .cal-grid .d.dis { color: #ccc; pointer-events: none; }
+
+    .clk-head { display: flex; align-items: baseline; gap: 2px; }
+    .clk-head .seg { font-size: 40px; font-weight: bold; padding: 0 6px; border-radius: 6px; cursor: pointer; opacity: .6; }
+    .clk-head .seg.on { opacity: 1; background: rgba(255,255,255,.2); }
+    .clk-head .colon { font-size: 40px; font-weight: bold; }
+    .clk-dial { position: relative; width: 256px; height: 256px; margin: 8px auto; border-radius: 50%; background: #ffeef6; touch-action: none; user-select: none; -webkit-user-select: none; }
+    .clk-dial .num { position: absolute; width: 32px; height: 32px; margin: -16px 0 0 -16px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 14px; color: #333; pointer-events: none; }
+    .clk-dial .num.inner { font-size: 12px; color: #777; }
+    .clk-dial .num.on { color: #fff; font-weight: bold; }
+    .clk-hand { position: absolute; left: 50%; top: 50%; height: 2px; background: #FF1493; transform-origin: 0 50%; pointer-events: none; }
+    .clk-knob { position: absolute; width: 32px; height: 32px; margin: -16px 0 0 -16px; border-radius: 50%; background: #FF1493; pointer-events: none; }
+    .clk-knob.small { width: 8px; height: 8px; margin: -4px 0 0 -4px; }
+    .clk-center { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: #FF1493; pointer-events: none; }
+    .clk-hint { text-align: center; font-size: 12px; color: #999; }
 
     .panels { display: flex; flex: 1; overflow: hidden; gap: 1px; background: #ddd; }
     .panel { background: #fff; display: flex; flex-direction: column; flex: 1; overflow: hidden; }
@@ -53,10 +99,17 @@
       <div class="chip" data-period="month">เดือนนี้</div>
       <div class="chip" data-period="custom">เลือกช่วงเอง</div>
     </div>
-    <div class="range-row" id="range-row">
-      <input type="date" id="date-start" />
-      <span>–</span>
-      <input type="date" id="date-end" />
+    <div class="range-wrap" id="range-row">
+      <div class="range-row">
+        <button type="button" class="pick-field" id="date-start-btn"><span class="ico">📅</span><span id="date-start-txt"></span></button>
+        <span>–</span>
+        <button type="button" class="pick-field" id="date-end-btn"><span class="ico">📅</span><span id="date-end-txt"></span></button>
+      </div>
+      <div class="range-row">
+        <button type="button" class="pick-field" id="time-start-btn"><span class="ico">🕒</span><span id="time-start-txt"></span></button>
+        <span>–</span>
+        <button type="button" class="pick-field" id="time-end-btn"><span class="ico">🕒</span><span id="time-end-txt"></span></button>
+      </div>
     </div>
   </div>
 
@@ -68,6 +121,33 @@
     <div class="panel">
       <div class="panel-title">เครื่อง (เลือกได้หลายเครื่อง)</div>
       <div class="list" id="machine-list"><div class="machine-empty">เลือกสาขาก่อน</div></div>
+    </div>
+  </div>
+
+  <!-- popup ปฏิทิน -->
+  <div class="pk-mask" id="cal-mask">
+    <div class="pk-box">
+      <div class="pk-head"><div class="sub" id="cal-title">วันที่เริ่มต้น</div><div class="big" id="cal-big"></div></div>
+      <div class="pk-body">
+        <div class="cal-nav"><button type="button" id="cal-prev">‹</button><div class="m" id="cal-month"></div><button type="button" id="cal-next">›</button></div>
+        <div class="cal-grid" id="cal-grid"></div>
+      </div>
+      <div class="pk-actions"><button type="button" id="cal-cancel">ยกเลิก</button><button type="button" id="cal-ok">ตกลง</button></div>
+    </div>
+  </div>
+
+  <!-- popup นาฬิกา -->
+  <div class="pk-mask" id="clk-mask">
+    <div class="pk-box">
+      <div class="pk-head">
+        <div class="sub" id="clk-title">เวลาเริ่มต้น</div>
+        <div class="clk-head"><span class="seg on" id="clk-h"></span><span class="colon">:</span><span class="seg" id="clk-m"></span><span style="font-size:16px;margin-left:6px">น.</span></div>
+      </div>
+      <div class="pk-body">
+        <div class="clk-dial" id="clk-dial"></div>
+        <div class="clk-hint" id="clk-hint">แตะ/ลากเพื่อเลือกชั่วโมง</div>
+      </div>
+      <div class="pk-actions"><button type="button" id="clk-cancel">ยกเลิก</button><button type="button" id="clk-ok">ตกลง</button></div>
     </div>
   </div>
 
@@ -89,9 +169,6 @@
     async function init() {
       await liff.init({ liffId: '2009523613-hLnRGrZC' });
       if (!liff.isLoggedIn()) { liff.login(); return; }
-      const today = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
-      document.getElementById('date-start').value = today;
-      document.getElementById('date-end').value = today;
       try {
         const res = await fetch('/api/my-branches', { headers: { Authorization: `Bearer ${liff.getAccessToken()}` } });
         const data = await res.json();
@@ -110,6 +187,144 @@
       document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === chip));
       document.getElementById('range-row').classList.toggle('show', period === 'custom');
     });
+
+    // ----- ช่วงวันที่ + เวลา (popup ปฏิทิน / นาฬิกา) -----
+    const pad = n => String(n).padStart(2, '0');
+    const TH_MONTH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+    const TH_MON_S = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+    const todayStr = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10); // วันนี้ตามเวลาไทย
+    const range = { start: todayStr, end: todayStr, startTime: '00:01', endTime: '23:59' };
+    const fmtDate = s => { const [y, m, d] = s.split('-').map(Number); return `${d} ${TH_MON_S[m - 1]} ${y + 543}`; };
+    function renderRange() {
+      document.getElementById('date-start-txt').textContent = fmtDate(range.start);
+      document.getElementById('date-end-txt').textContent = fmtDate(range.end);
+      document.getElementById('time-start-txt').textContent = range.startTime.replace(':', '.') + ' น.';
+      document.getElementById('time-end-txt').textContent = range.endTime.replace(':', '.') + ' น.';
+    }
+    renderRange();
+
+    // ปฏิทิน
+    const cal = { which: 'start', value: todayStr, y: 0, m: 0 };
+    function openCal(which) {
+      cal.which = which; cal.value = range[which];
+      const [y, m] = cal.value.split('-').map(Number); cal.y = y; cal.m = m - 1;
+      document.getElementById('cal-title').textContent = which === 'start' ? 'วันที่เริ่มต้น' : 'วันที่สิ้นสุด';
+      renderCal();
+      document.getElementById('cal-mask').classList.add('show');
+    }
+    function renderCal() {
+      document.getElementById('cal-big').textContent = fmtDate(cal.value);
+      document.getElementById('cal-month').textContent = `${TH_MONTH[cal.m]} ${cal.y + 543}`;
+      const first = new Date(cal.y, cal.m, 1).getDay();
+      const days = new Date(cal.y, cal.m + 1, 0).getDate();
+      // ไฮไลต์ช่วงระหว่างวันเริ่ม–สิ้นสุด (ใช้ค่าที่กำลังเลือกแทนฝั่งที่กำลังแก้)
+      const lo = cal.which === 'start' ? cal.value : range.start;
+      const hi = cal.which === 'end' ? cal.value : range.end;
+      let html = ['อา','จ','อ','พ','พฤ','ศ','ส'].map(d => `<div class="dow">${d}</div>`).join('');
+      for (let i = 0; i < first; i++) html += '<div></div>';
+      for (let d = 1; d <= days; d++) {
+        const ds = `${cal.y}-${pad(cal.m + 1)}-${pad(d)}`;
+        const cls = ['d'];
+        if (ds === todayStr) cls.push('today');
+        if (ds === cal.value) cls.push('sel');
+        else if (ds >= lo && ds <= hi) cls.push('inrange');
+        if (ds > todayStr) cls.push('dis');
+        html += `<div class="${cls.join(' ')}" data-d="${ds}"><span>${d}</span></div>`;
+      }
+      document.getElementById('cal-grid').innerHTML = html;
+    }
+    document.getElementById('cal-grid').addEventListener('click', e => {
+      const c = e.target.closest('.d'); if (!c) return;
+      cal.value = c.dataset.d; renderCal();
+    });
+    document.getElementById('cal-prev').onclick = () => { if (--cal.m < 0) { cal.m = 11; cal.y--; } renderCal(); };
+    document.getElementById('cal-next').onclick = () => { if (++cal.m > 11) { cal.m = 0; cal.y++; } renderCal(); };
+    document.getElementById('cal-cancel').onclick = () => document.getElementById('cal-mask').classList.remove('show');
+    document.getElementById('cal-ok').onclick = () => {
+      range[cal.which] = cal.value;
+      // กันวันเริ่มเลยวันสิ้นสุด
+      if (range.start > range.end) { if (cal.which === 'start') range.end = range.start; else range.start = range.end; }
+      renderRange();
+      document.getElementById('cal-mask').classList.remove('show');
+    };
+    document.getElementById('date-start-btn').onclick = () => openCal('start');
+    document.getElementById('date-end-btn').onclick = () => openCal('end');
+
+    // นาฬิกา: เลือกชั่วโมง (วงนอก 0–11, วงใน 12–23) แล้วเลื่อนไปเลือกนาที (ได้ทุกนาที 0–59)
+    const clk = { which: 'start', h: 0, m: 0, mode: 'h' };
+    const DIAL = 256, C = DIAL / 2, R_OUT = 104, R_IN = 70;
+    function openClk(which) {
+      clk.which = which; clk.mode = 'h';
+      const [h, m] = range[which === 'start' ? 'startTime' : 'endTime'].split(':').map(Number);
+      clk.h = h; clk.m = m;
+      document.getElementById('clk-title').textContent = which === 'start' ? 'เวลาเริ่มต้น' : 'เวลาสิ้นสุด';
+      renderClk();
+      document.getElementById('clk-mask').classList.add('show');
+    }
+    const pos = (idx, r) => { const a = (idx / 12) * 2 * Math.PI; return { x: C + r * Math.sin(a), y: C - r * Math.cos(a) }; };
+    function renderClk() {
+      document.getElementById('clk-h').textContent = pad(clk.h);
+      document.getElementById('clk-m').textContent = pad(clk.m);
+      document.getElementById('clk-h').classList.toggle('on', clk.mode === 'h');
+      document.getElementById('clk-m').classList.toggle('on', clk.mode === 'm');
+      document.getElementById('clk-hint').textContent = clk.mode === 'h' ? 'แตะ/ลากเพื่อเลือกชั่วโมง' : 'แตะ/ลากเพื่อเลือกนาที (ได้ทุกนาที)';
+      let html = '', hand;
+      if (clk.mode === 'h') {
+        const inner = clk.h >= 12, idx = clk.h % 12, r = inner ? R_IN : R_OUT;
+        hand = { ...pos(idx, r), r, big: true };
+        for (let i = 0; i < 12; i++) {
+          const o = pos(i, R_OUT), n = pos(i, R_IN);
+          html += `<div class="num${clk.h === i ? ' on' : ''}" style="left:${o.x}px;top:${o.y}px">${pad(i)}</div>`;
+          html += `<div class="num inner${clk.h === i + 12 ? ' on' : ''}" style="left:${n.x}px;top:${n.y}px">${i + 12}</div>`;
+        }
+      } else {
+        const onLabel = clk.m % 5 === 0;
+        hand = { ...pos(clk.m / 5, R_OUT), r: R_OUT, big: onLabel };
+        for (let i = 0; i < 12; i++) {
+          const o = pos(i, R_OUT);
+          html += `<div class="num${clk.m === i * 5 ? ' on' : ''}" style="left:${o.x}px;top:${o.y}px">${pad(i * 5)}</div>`;
+        }
+      }
+      const ang = Math.atan2(hand.y - C, hand.x - C) * 180 / Math.PI;
+      const knob = `<div class="clk-knob" style="left:${hand.x}px;top:${hand.y}px"></div>` +
+        (hand.big ? '' : `<div class="clk-knob small" style="left:${hand.x}px;top:${hand.y}px;background:#fff"></div>`);
+      // ตัวเลขต้องอยู่บนปุ่มชมพู จึงวาดเข็ม/ปุ่มก่อนตัวเลข
+      document.getElementById('clk-dial').innerHTML =
+        `<div class="clk-hand" style="width:${hand.r}px;transform:rotate(${ang}deg)"></div>${knob}<div class="clk-center"></div>${html}`;
+    }
+    function dialPick(e) {
+      const rect = document.getElementById('clk-dial').getBoundingClientRect();
+      const x = e.clientX - rect.left - C, y = e.clientY - rect.top - C;
+      let a = Math.atan2(x, -y); if (a < 0) a += 2 * Math.PI;
+      const dist = Math.hypot(x, y);
+      if (clk.mode === 'h') {
+        const idx = Math.round(a / (2 * Math.PI) * 12) % 12;
+        clk.h = dist < (R_IN + R_OUT) / 2 ? idx + 12 : idx;
+      } else {
+        clk.m = Math.round(a / (2 * Math.PI) * 60) % 60;
+      }
+      renderClk();
+    }
+    let dragging = false;
+    const dial = document.getElementById('clk-dial');
+    dial.addEventListener('pointerdown', e => { dragging = true; dial.setPointerCapture(e.pointerId); dialPick(e); });
+    dial.addEventListener('pointermove', e => { if (dragging) dialPick(e); });
+    dial.addEventListener('pointerup', () => {
+      if (!dragging) return; dragging = false;
+      if (clk.mode === 'h') { clk.mode = 'm'; renderClk(); } // เลือกชั่วโมงเสร็จ ไปเลือกนาทีต่อ
+    });
+    dial.addEventListener('pointercancel', () => { dragging = false; });
+    document.getElementById('clk-h').onclick = () => { clk.mode = 'h'; renderClk(); };
+    document.getElementById('clk-m').onclick = () => { clk.mode = 'm'; renderClk(); };
+    document.getElementById('clk-cancel').onclick = () => document.getElementById('clk-mask').classList.remove('show');
+    document.getElementById('clk-ok').onclick = () => {
+      range[clk.which === 'start' ? 'startTime' : 'endTime'] = `${pad(clk.h)}:${pad(clk.m)}`;
+      renderRange();
+      document.getElementById('clk-mask').classList.remove('show');
+    };
+    document.getElementById('time-start-btn').onclick = () => openClk('start');
+    document.getElementById('time-end-btn').onclick = () => openClk('end');
+    document.querySelectorAll('.pk-mask').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('show'); }));
 
     // ----- สาขา -----
     function branchSelectedCount(name) {
@@ -196,8 +411,10 @@
             accessToken: liff.getAccessToken(),
             machineIds: [...selected],
             period,
-            start: document.getElementById('date-start').value,
-            end: document.getElementById('date-end').value
+            start: range.start,
+            end: range.end,
+            startTime: range.startTime,
+            endTime: range.endTime
           })
         });
         const data = await res.json();
