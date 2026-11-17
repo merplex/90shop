@@ -385,6 +385,20 @@ app.post('/api/transaction', express.json(), async (req, res) => {
     );
 
     const inserted = insertRes.rowCount > 0;
+    if (!inserted) {
+      // ซ้ำจริง (ESP retry) ค่าจะเหมือนเดิม — ถ้าค่าไม่ตรงแปลว่ามีก้อนใหม่ period_start ชนกับก้อนเดิมแล้วโดนทิ้ง = ยอดหาย
+      const ex = await pool.query(
+        'SELECT period_end, coin, bank, qr FROM hourly_summary WHERE machine_id = $1 AND period_start = $2::timestamptz',
+        [machine_id, period_start]
+      );
+      const e = ex.rows[0];
+      if (e && (Number(e.coin) !== coinVal || Number(e.bank) !== bankVal || Number(e.qr) !== qrVal ||
+                new Date(e.period_end).getTime() !== new Date(period_end).getTime())) {
+        console.warn(`[Transaction DROPPED] machine=${machine_id} start=${period_start} ` +
+          `new(end=${period_end} coin=${coinVal} bank=${bankVal} qr=${qrVal}) ` +
+          `existing(end=${new Date(e.period_end).toISOString()} coin=${e.coin} bank=${e.bank} qr=${e.qr})`);
+      }
+    }
     return res.json({ success: true, inserted, message: inserted ? 'บันทึกสำเร็จ' : 'ข้อมูลซ้ำ ข้ามแล้ว' });
   } catch (err) {
     console.error('[ESP32 Transaction Error]', err.message);

@@ -748,12 +748,13 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
     return { error: 'ช่วงวันที่/เวลาไม่ถูกต้อง' };
   }
 
-  // hourly_summary เก็บเป็นก้อนรายชั่วโมง: นับก้อนที่ "คาบเกี่ยว" ช่วงที่เลือก
-  // (เช่น เริ่ม 00:01 ยังได้ก้อน 00:00–01:00 ไม่ทำยอดชั่วโมงแรกหาย)
+  // นับตามเวลาจบก้อน (period_end): เครื่องส่งทันทีที่มียอด (หรือรวบส่งภายใน 5 นาที)
+  // ส่วน period_start คือเวลาส่งครั้งก่อน อาจย้อนไปหลายชั่วโมงตอนเครื่องว่าง
+  // ถ้าใช้ period_start/คาบเกี่ยว ก้อนที่ "เริ่ม" ก่อนเวลาสิ้นสุดแต่เงินเข้าหลังจากนั้นจะถูกนับเกิน
   const moneyRes = await pool.query(
     `SELECT machine_id, SUM(coin)::bigint coin, SUM(bank)::bigint bank, SUM(qr)::bigint qr
      FROM hourly_summary
-     WHERE machine_id = ANY($1) AND period_end > $2 AND period_start <= $3
+     WHERE machine_id = ANY($1) AND period_end > $2 AND period_end <= $3
      GROUP BY machine_id`,
     [machineIds, from.toISOString(), to.toISOString()]
   );
