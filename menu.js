@@ -726,7 +726,7 @@ function machineReportPeriodBounds(period, startStr, endStr, startTime, endTime)
   const et = okTime(endTime) ? endTime : '23:59';
   const from = new Date(`${startStr}T${st}:00+07:00`);
   const to = new Date(`${endStr}T${et}:59.999+07:00`);
-  return { from, to, label: `${startStr} ${st} – ${endStr} ${et}` };
+  return { from, to, label: `${startStr} – ${endStr}`, timeLabel: `${st} – ${et} น.` };
 }
 
 function mrRow(label, value, unit = '฿', color = '#000000') {
@@ -741,7 +741,9 @@ function mrRow(label, value, unit = '฿', color = '#000000') {
 
 // คืน array ของ flex messages (การ์ดแยกเครื่อง + การ์ดสรุปรวมเฉพาะเครื่องที่เลือก)
 async function buildMachinePeriodReport(pool, machineIds, period, startStr, endStr, startTime, endTime) {
-  const { from, to, label } = machineReportPeriodBounds(period, startStr, endStr, startTime, endTime);
+  const { from, to, label, timeLabel } = machineReportPeriodBounds(period, startStr, endStr, startTime, endTime);
+  // ช่วงเลือกเอง: วันที่บรรทัดหนึ่ง เวลาอีกบรรทัด
+  const timeLine = timeLabel ? [{ type: "text", text: `เวลา: ${timeLabel}`, color: "#ffffff", size: "xs" }] : [];
   if (period === 'custom' && (isNaN(from) || isNaN(to) || from > to)) {
     return { error: 'ช่วงวันที่/เวลาไม่ถูกต้อง' };
   }
@@ -801,7 +803,8 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
     type: "bubble", size: "giga",
     header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [
       { type: "text", text: "📊 รายงานต่อเครื่อง", color: "#ffffff", weight: "bold" },
-      { type: "text", text: `ช่วง: ${label}  •  ${machineIds.length} เครื่อง`, color: "#ffffff", size: "xs" }
+      { type: "text", text: `ช่วง: ${label}  •  ${machineIds.length} เครื่อง`, color: "#ffffff", size: "xs" },
+      ...timeLine
     ] },
     body: { type: "box", layout: "vertical", contents: machineCards }
   };
@@ -810,7 +813,8 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
     type: "bubble", size: "giga",
     header: { type: "box", layout: "vertical", backgroundColor: "#333333", contents: [
       { type: "text", text: "🏆 สรุปรวม (เฉพาะเครื่องที่เลือก)", color: "#ffffff", weight: "bold" },
-      { type: "text", text: `ช่วง: ${label}`, color: "#ffffff", size: "xs" }
+      { type: "text", text: `ช่วง: ${label}`, color: "#ffffff", size: "xs" },
+      ...timeLine
     ] },
     body: { type: "box", layout: "vertical", spacing: "sm", contents: [
       mrRow("🪙 เหรียญรวม", tot.coin),
