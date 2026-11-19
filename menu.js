@@ -783,7 +783,8 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
           // ปุ่มดู 10 รายการล่าสุดของเครื่องนี้ (postback ไม่มี displayText แชทจะได้ไม่รก)
           { type: "box", layout: "vertical", flex: 4, backgroundColor: "#FFE4F2", cornerRadius: "md",
             paddingTop: "xs", paddingBottom: "xs", paddingStart: "sm", paddingEnd: "sm",
-            action: { type: "postback", label: "รายการล่าสุด", data: `MR_RECENT:${mId}` },
+            // แนบช่วงเวลาของรายงานไปด้วย -> การ์ดรายการแสดงทุกก้อนในช่วงนี้ (ยอดรวมตรงกับรายงาน)
+            action: { type: "postback", label: "รายการล่าสุด", data: `MR_RECENT:${mId}|${from.getTime()}|${to.getTime()}` },
             contents: [{ type: "text", text: "🕘 รายการล่าสุด", size: "xs", color: "#FF1493", weight: "bold", align: "center" }] }
         ] },
         mrRow("🪙 เหรียญ", m.coin),
@@ -837,70 +838,137 @@ async function buildMachinePeriodReport(pool, machineIds, period, startStr, endS
   ] };
 }
 
-// --- 15 รายการล่าสุดของเครื่อง (กดจากปุ่มในการ์ดรายงานต่อเครื่อง) ---
+// --- รายการของเครื่อง (กดจากปุ่มในการ์ดรายงาน) ---
+// arg = "machineId" (การ์ดเก่า/รายงานสาขา: 15 รายการล่าสุด)
+//     หรือ "machineId|fromMs|toMs" (จากรายงานต่อเครื่อง: ทุกก้อนในช่วงของรายงาน)
 // ข้อมูลเงินเก็บเป็นแถวต่อช่วงเวลาใน hourly_summary (QR มาเป็นช่วงสั้นตอนสแกน, เหรียญ/แบงค์
-// เป็นยอดรวมของช่วงนั้น) จึงแตกแต่ละแถวออกเป็นรายการตามประเภทที่มียอด แล้วเอา 15 อันล่าสุด
-async function sendMachineRecentTransactions(event, machineId, pool, client) {
+// เป็นยอดรวมของช่วงนั้น) จึงแตกแต่ละแถวออกเป็นรายการตามประเภทที่มียอด
+async function sendMachineRecentTransactions(event, arg, pool, client) {
+  const [machineId, fromRaw, toRaw] = String(arg).split('|');
+  const from = fromRaw ? new Date(Number(fromRaw)) : null;
+  const to = toRaw ? new Date(Number(toRaw)) : null;
+  const inRange = !!(from && to && !isNaN(from) && !isNaN(to));
+
   const userId = event.source.userId;
   const superAdmin = await pool.query('SELECT 1 FROM super_admins WHERE line_user_id = $1', [userId]);
   const params = [machineId];
   let accessJoin = '';
   if (superAdmin.rows.length === 0) {
-    accessJoin = 'JOIN owner_branch_mapping m ON m.branch_id = h.branch_id AND m.owner_line_id = $2';
     params.push(userId);
+    accessJoin = `JOIN owner_branch_mapping m ON m.branch_id = h.branch_id AND m.owner_line_id = $${params.length}`;
+  }
+  let rangeSql = '';
+  if (inRange) {
+    // เงื่อนไขเดียวกับ buildMachinePeriodReport (นับตาม period_end) ยอดรวมจึงตรงกับการ์ดรายงาน
+    params.push(from.toISOString(), to.toISOString());
+    rangeSql = `AND h.period_end > $${params.length - 1} AND h.period_end <= $${params.length}`;
   }
 
   const res = await pool.query(
     `SELECT h.period_end, h.coin, h.bank, h.qr
      FROM hourly_summary h ${accessJoin}
-     WHERE h.machine_id = $1 AND (h.coin > 0 OR h.bank > 0 OR h.qr > 0)
+     WHERE h.machine_id = $1 AND (h.coin > 0 OR h.bank > 0 OR h.qr > 0) ${rangeSql}
      ORDER BY h.period_end DESC
-     LIMIT 15`,
+     LIMIT ${inRange ? 2000 : 15}`,
     params
   );
 
   const items = [];
+  const sum = { coin: 0, bank: 0, qr: 0 };
   res.rows.forEach(r => {
-    if (Number(r.qr) > 0)   items.push({ at: r.period_end, type: '📱 QR',     amount: Number(r.qr) });
-    if (Number(r.bank) > 0) items.push({ at: r.period_end, type: '💵 แบงค์',  amount: Number(r.bank) });
-    if (Number(r.coin) > 0) items.push({ at: r.period_end, type: '🪙 เหรียญ', amount: Number(r.coin) });
+    const qr = Number(r.qr), bank = Number(r.bank), coin = Number(r.coin);
+    if (qr > 0)   items.push({ at: r.period_end, type: '📱 QR',     amount: qr });
+    if (bank > 0) items.push({ at: r.period_end, type: '💵 แบงค์',  amount: bank });
+    if (coin > 0) items.push({ at: r.period_end, type: '🪙 เหรียญ', amount: coin });
+    sum.coin += coin; sum.bank += bank; sum.qr += qr;
   });
-  const latest = items.slice(0, 15);
+  const list = inRange ? items : items.slice(0, 15);
 
-  const fmtTime = d => new Date(d).toLocaleString('en-GB', {
-    timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
+  // ในโหมดช่วงเวลาแสดงถึงวินาที เพื่อให้เห็นก้อนที่ส่งซ้ำ/เวลาใกล้กันมาก
+  const fmt = (d, withSec) => new Date(d).toLocaleString('en-GB', {
+    timeZone: 'Asia/Bangkok', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    ...(withSec ? { second: '2-digit' } : {}), hour12: false
   }).replace(',', '');
 
-  const rows = latest.length === 0
-    ? [{ type: "text", text: "ยังไม่มีรายการ (หรือไม่มีสิทธิ์ดูเครื่องนี้)", size: "sm", color: "#999999", wrap: true }]
-    : latest.map(it => ({
-        type: "box", layout: "horizontal", margin: "sm",
-        contents: [
-          { type: "text", text: fmtTime(it.at), size: "sm", color: "#555555", flex: 4 },
-          { type: "text", text: it.type, size: "sm", color: "#333333", flex: 3 },
-          { type: "text", text: `฿${it.amount.toLocaleString()}`, size: "sm", weight: "bold", align: "end", flex: 3 }
-        ]
-      }));
+  const rowBox = it => ({
+    type: "box", layout: "horizontal", margin: "sm",
+    contents: [
+      { type: "text", text: fmt(it.at, inRange), size: "xs", color: "#555555", flex: 5 },
+      { type: "text", text: it.type, size: "xs", color: "#333333", flex: 3 },
+      { type: "text", text: `฿${it.amount.toLocaleString()}`, size: "xs", weight: "bold", align: "end", flex: 3 }
+    ]
+  });
+  const headRow = { type: "box", layout: "horizontal", contents: [
+    { type: "text", text: "เวลา", size: "xxs", color: "#aaaaaa", flex: 5 },
+    { type: "text", text: "ประเภท", size: "xxs", color: "#aaaaaa", flex: 3 },
+    { type: "text", text: "ยอดเงิน", size: "xxs", color: "#aaaaaa", align: "end", flex: 3 }
+  ] };
+  const subtitle = inRange
+    ? `${fmt(from)} – ${fmt(to)}  •  ${list.length} รายการ`
+    : `${list.length} รายการล่าสุด`;
 
-  const bubble = {
-    type: "bubble", size: "giga",
-    header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [
-      { type: "text", text: "🕘 รายการล่าสุด", color: "#ffffff", weight: "bold" },
-      { type: "text", text: `📟 ${machineId}  •  ${latest.length} รายการ`, color: "#ffffff", size: "xs", wrap: true }
-    ] },
-    body: { type: "box", layout: "vertical", contents: [
-      { type: "box", layout: "horizontal", contents: [
-        { type: "text", text: "เวลา", size: "xs", color: "#aaaaaa", flex: 4 },
-        { type: "text", text: "ประเภท", size: "xs", color: "#aaaaaa", flex: 3 },
-        { type: "text", text: "ยอดเงิน", size: "xs", color: "#aaaaaa", align: "end", flex: 3 }
+  // แบ่งหน้า 25 รายการ/การ์ด แล้วอัดลง carousel ตามขนาด (LINE จำกัด ~50KB/ข้อความ, 10 การ์ด/carousel)
+  // reply ได้สูงสุด 5 ข้อความ — ถ้าเกินจะตัดหน้าเก่าสุดออก (รายการเรียงใหม่ -> เก่า)
+  const PER = 25;
+  const pages = [];
+  for (let i = 0; i < list.length; i += PER) pages.push(list.slice(i, i + PER));
+  if (pages.length === 0) pages.push([]);
+
+  const buildBubbles = (shown, truncated) => shown.map((page, idx) => {
+    const isLast = idx === shown.length - 1;
+    const body = [headRow, { type: "separator", margin: "sm" }];
+    if (page.length === 0) {
+      body.push({ type: "text", text: "ไม่มีรายการ (หรือไม่มีสิทธิ์ดูเครื่องนี้)", size: "sm", color: "#999999", wrap: true, margin: "md" });
+    } else {
+      body.push(...page.map(rowBox));
+    }
+    if (isLast && inRange && !truncated) {
+      body.push({ type: "separator", margin: "md" });
+      body.push({ type: "text", margin: "md", size: "xs", weight: "bold", color: "#FF1493", wrap: true,
+        text: `รวม 🪙 ฿${sum.coin.toLocaleString()}   💵 ฿${sum.bank.toLocaleString()}   📱 ฿${sum.qr.toLocaleString()}` });
+    }
+    if (isLast) {
+      body.push({ type: "text", size: "xxs", color: "#aaaaaa", margin: "md", wrap: true,
+        text: truncated
+          ? `* รายการเยอะเกิน แสดงเฉพาะ ${shown.reduce((n, pg) => n + pg.length, 0)} รายการล่าสุด`
+          : "* เวลา = ตอนเครื่องส่งยอดเข้าระบบ  •  เหรียญ/แบงค์ เป็นยอดรวมต่อรอบที่ส่ง" });
+    }
+    return {
+      type: "bubble", size: "giga",
+      header: { type: "box", layout: "vertical", backgroundColor: "#FF1493", contents: [
+        { type: "text", text: inRange ? "🕘 รายการในช่วงรายงาน" : "🕘 รายการล่าสุด", color: "#ffffff", weight: "bold" },
+        { type: "text", text: `📟 ${machineId}${shown.length > 1 ? `  •  หน้า ${idx + 1}/${shown.length}` : ''}`, color: "#ffffff", size: "xs", wrap: true },
+        { type: "text", text: subtitle, color: "#ffffff", size: "xxs", wrap: true }
       ] },
-      { type: "separator", margin: "sm" },
-      ...rows,
-      { type: "text", text: "* เหรียญ/แบงค์ เป็นยอดรวมต่อรอบที่เครื่องส่งข้อมูลเข้ามา", size: "xxs", color: "#aaaaaa", margin: "md", wrap: true }
-    ] }
+      body: { type: "box", layout: "vertical", contents: body }
+    };
+  });
+
+  const pack = bubbles => {
+    const msgs = [];
+    let cur = [], curSize = 0;
+    const flush = () => {
+      if (!cur.length) return;
+      msgs.push({ type: "flex", altText: `รายการ ${machineId}`,
+        contents: cur.length === 1 ? cur[0] : { type: "carousel", contents: cur } });
+      cur = []; curSize = 0;
+    };
+    bubbles.forEach(b => {
+      const size = Buffer.byteLength(JSON.stringify(b));
+      if (cur.length && (cur.length >= 10 || curSize + size > 45000)) flush();
+      cur.push(b); curSize += size;
+    });
+    flush();
+    return msgs;
   };
 
-  return client.replyMessage(event.replyToken, { type: "flex", altText: `รายการล่าสุด ${machineId}`, contents: bubble });
+  let n = pages.length, messages;
+  for (;;) {
+    messages = pack(buildBubbles(pages.slice(0, n), n < pages.length));
+    if (messages.length <= 5 || n === 1) break;
+    n--;
+  }
+  return client.replyMessage(event.replyToken, messages);
 }
 
 // --- Helpers ---
